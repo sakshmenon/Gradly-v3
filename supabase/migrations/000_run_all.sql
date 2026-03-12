@@ -419,3 +419,12 @@ CREATE POLICY "path_plans: update own"
 CREATE POLICY "path_plans: delete own"
     ON public.path_plans FOR DELETE
     USING (user_id = auth.uid());
+
+
+-- =============================================================
+-- Migration 003: Profile Fields
+-- =============================================================
+
+ALTER TABLE public.users
+    ADD COLUMN IF NOT EXISTS starting_semester   TEXT,
+    ADD COLUMN IF NOT EXISTS expected_graduation TEXT;
