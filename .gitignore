@@ -2,8 +2,6 @@
 # Real credential files — never commit these
 .env
 .env.*
-# Allow the safe template
-!.env.example
 
 # ── Cursor IDE artifacts ──────────────────────────────────────────
 .cursor/
