@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { Pixelify_Sans } from "next/font/google";
 import "./globals.css";
+import ClientLayout from "@/components/ClientLayout";
+
+const pixelify = Pixelify_Sans({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Gradly",
@@ -11,7 +15,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={`${pixelify.className} bg-black text-white`}>
+        <ClientLayout>{children}</ClientLayout>
+      </body>
     </html>
   );
 }
