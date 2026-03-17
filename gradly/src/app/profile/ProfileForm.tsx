@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, FormEvent } from "react";
+import { useState, useTransition, type FormEvent } from "react";
+import Link from "next/link";
 import { updateProfile, sendPasswordResetEmail } from "./actions";
 import { AVAILABLE_MAJORS } from "@/lib/utils/planning";
 
@@ -27,9 +28,38 @@ function generateSemesters(): string[] {
 
 const SEMESTERS = generateSemesters();
 
+// ── Shared field style tokens ─────────────────────────────────────────────────
+
+const inputCls =
+  "w-full bg-transparent border-b border-gray-900 py-2 outline-none " +
+  "focus:border-green-500 transition-colors placeholder:text-gray-800 text-sm text-gray-300";
+
+const selectCls =
+  "w-full bg-transparent border-b border-gray-900 py-2 outline-none " +
+  "focus:border-green-500 transition-colors text-sm text-gray-300";
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-[9px] text-gray-700 uppercase mb-2 tracking-widest">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function ProfileForm({ profile }: { profile: ProfileData }) {
-  const [saveMessage,  setSaveMessage]  = useState<string | null>(null);
-  const [pwMessage,    setPwMessage]    = useState<string | null>(null);
+  const [saveMessage,   setSaveMessage]   = useState<string | null>(null);
+  const [pwMessage,     setPwMessage]     = useState<string | null>(null);
   const [isSavePending, startSaveTransition] = useTransition();
   const [isPwPending,   startPwTransition]   = useTransition();
 
@@ -39,7 +69,7 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
     setSaveMessage(null);
     startSaveTransition(async () => {
       const result = await updateProfile(formData);
-      setSaveMessage(result.error ? `Error: ${result.error}` : "Profile saved.");
+      setSaveMessage(result.error ? `Error: ${result.error}` : "Parameters_Saved.");
     });
   }
 
@@ -48,90 +78,79 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
     startPwTransition(async () => {
       const result = await sendPasswordResetEmail();
       setPwMessage(
-        result.error
-          ? `Error: ${result.error}`
-          : "Password reset email sent — check your inbox."
+        result.error ? `Error: ${result.error}` : "Reset_Link_Dispatched."
       );
     });
   }
 
   return (
-    <>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="display_name">Name</label>
-          <br />
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-6 h-full"
+    >
+      {/* ── Editable fields ─────────────────────────────────────────────── */}
+      <div className="space-y-6 flex-1 overflow-y-auto scrollbar-hide pr-1">
+        <Field label="Display_Name">
           <input
-            id="display_name"
             name="display_name"
             type="text"
             defaultValue={profile.display_name ?? ""}
-            placeholder="Your full name"
+            placeholder="UNDEFINED"
+            className={inputCls}
           />
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="email">Email</label>
-          <br />
+        <Field label="Terminal_Email">
           <input
-            id="email"
             type="email"
             value={profile.email}
             disabled
             readOnly
+            className={`${inputCls} opacity-30 cursor-not-allowed`}
           />
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="major">Major</label>
-          <br />
+        <Field label="Major">
           <select
-            id="major"
             name="major"
             defaultValue={profile.major ?? ""}
+            className={selectCls}
           >
-            <option value="">-- Select --</option>
+            <option value="">-- UNDEFINED --</option>
             {AVAILABLE_MAJORS.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="starting_semester">Starting Semester</label>
-          <br />
+        <Field label="Starting_Semester">
           <select
-            id="starting_semester"
             name="starting_semester"
             defaultValue={profile.starting_semester ?? ""}
+            className={selectCls}
           >
-            <option value="">-- Select --</option>
+            <option value="">-- UNDEFINED --</option>
             {SEMESTERS.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="expected_graduation">Expected Graduation</label>
-          <br />
+        <Field label="Expected_Graduation">
           <select
-            id="expected_graduation"
             name="expected_graduation"
             defaultValue={profile.expected_graduation ?? ""}
+            className={selectCls}
           >
-            <option value="">-- Select --</option>
+            <option value="">-- UNDEFINED --</option>
             {SEMESTERS.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="gpa">GPA</label>
-          <br />
+        <Field label="GPA_Override">
           <input
-            id="gpa"
             name="gpa"
             type="number"
             step="0.01"
@@ -139,32 +158,68 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
             max="4"
             defaultValue={profile.gpa?.toString() ?? ""}
             placeholder="0.00 – 4.00"
+            className={inputCls}
           />
+        </Field>
+      </div>
+
+      {/* ── Actions ─────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 flex-shrink-0 pb-2">
+        {saveMessage && (
+          <p
+            className={`text-[9px] tracking-widest uppercase ${
+              saveMessage.startsWith("Error") ? "text-red-400" : "text-green-400"
+            }`}
+          >
+            {saveMessage}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={isSavePending}
+          className="w-full py-3 bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-green-500 transition-colors disabled:opacity-50"
+        >
+          {isSavePending ? "SAVING..." : "SAVE_PARAMETERS"}
+        </button>
+
+        <div className="flex flex-col gap-2 border-t border-gray-900 pt-3">
+          <button
+            type="button"
+            onClick={handlePasswordReset}
+            disabled={isPwPending}
+            className="text-[9px] text-gray-600 uppercase tracking-widest hover:text-gray-400 transition-colors text-left"
+          >
+            {isPwPending ? "Sending..." : "Reset_Password →"}
+          </button>
+
+          {pwMessage && (
+            <p
+              className={`text-[9px] tracking-widest uppercase ${
+                pwMessage.startsWith("Error") ? "text-red-400" : "text-green-400"
+              }`}
+            >
+              {pwMessage}
+            </p>
+          )}
+
+          <Link
+            href="/planning"
+            className="text-[9px] text-gray-600 uppercase tracking-widest hover:text-gray-400 transition-colors"
+          >
+            Manage_Classes →
+          </Link>
+
+          <form action="/auth/signout" method="post" className="mt-1">
+            <button
+              type="submit"
+              className="text-[9px] text-gray-700 uppercase tracking-widest hover:text-red-400 transition-colors"
+            >
+              [ Sign_Out ]
+            </button>
+          </form>
         </div>
-
-        <br />
-        <button type="submit" disabled={isSavePending}>
-          {isSavePending ? "Saving…" : "Save Profile"}
-        </button>
-        {saveMessage && <p>{saveMessage}</p>}
-      </form>
-
-      <hr />
-
-      <section>
-        <h3>Password</h3>
-        <button type="button" onClick={handlePasswordReset} disabled={isPwPending}>
-          {isPwPending ? "Sending…" : "Send Password Reset Email"}
-        </button>
-        {pwMessage && <p>{pwMessage}</p>}
-      </section>
-
-      <hr />
-
-      <section>
-        <h3>Classes Taken</h3>
-        <a href="/planning">Manage classes taken →</a>
-      </section>
-    </>
+      </div>
+    </form>
   );
 }

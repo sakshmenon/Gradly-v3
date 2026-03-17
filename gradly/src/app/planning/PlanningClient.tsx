@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useTransition, useMemo } from "react";
+import { useState, useEffect, useTransition, useMemo, useRef } from "react";
+import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { addCourseToSemester, removeCourseFromSemester } from "./actions";
 
@@ -34,18 +36,98 @@ type Props = {
   coursesBySemester: Record<string, CourseEntry[]>;
 };
 
-// Standard letter grades for the grade select
 const GRADE_OPTIONS = [
-  "A", "A-",
-  "B+", "B", "B-",
-  "C+", "C", "C-",
-  "D+", "D", "D-",
-  "F", "W", "I", "P",
+  "A","A-","B+","B","B-","C+","C","C-","D+","D","D-","F","W","I","P",
 ];
 
-// ── Component ─────────────────────────────────────────────────────────────────
+const YEAR_LABELS = ["Freshman", "Sophomore", "Junior", "Senior", "Graduate"];
+
+// ── Sub-component: semester card ──────────────────────────────────────────────
+
+function SemCard({
+  sem,
+  courses,
+  onRemove,
+  isPending,
+}: {
+  sem: SemesterSection;
+  courses: CourseEntry[];
+  onRemove: (id: string) => void;
+  isPending: boolean;
+}) {
+  const isEmpty    = courses.length === 0;
+  const isActive   = sem.type === "active";
+  const isPastEmpty = sem.type === "past" && isEmpty;
+  const totalCr    = courses.reduce((s, c) => s + c.credits, 0);
+
+  return (
+    <div
+      className={[
+        "flex-1 min-h-[140px] rounded-xl p-5 backdrop-blur-sm flex flex-col gap-3 transition-colors",
+        "bg-gray-950/40 border",
+        isActive    ? "border-green-900/70"   :
+        isPastEmpty ? "border-red-900/40"     :
+                      "border-gray-900",
+      ].join(" ")}
+    >
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <span
+          className={`text-[10px] tracking-[0.4em] uppercase font-bold ${
+            isActive ? "text-green-500" : "text-gray-500"
+          }`}
+        >
+          {sem.term}
+        </span>
+        <div className="flex items-center gap-2">
+          {isActive   && <span className="text-[8px] text-green-500 tracking-widest uppercase animate-pulse">◉ LIVE</span>}
+          {isPastEmpty && <span className="text-[8px] text-red-500/60  tracking-widest uppercase">⚠ EMPTY</span>}
+          {totalCr > 0 && <span className="text-[9px] text-gray-700 tracking-widest">{totalCr}cr</span>}
+        </div>
+      </div>
+
+      {/* Course list */}
+      {isEmpty ? (
+        <div className="text-[10px] text-gray-800 italic uppercase mt-auto">Null_Payload</div>
+      ) : (
+        <div className="flex flex-col gap-1.5 flex-1">
+          {courses.map((c) => (
+            <div key={c.id} className="flex items-center justify-between gap-2 group/row">
+              <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+                {c.grade && (
+                  <span className="text-[9px] text-green-500 font-bold shrink-0">[{c.grade}]</span>
+                )}
+                <span className="text-[10px] text-gray-300 shrink-0">{c.course_id}</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[9px] text-gray-700">{c.credits}cr</span>
+                <Link
+                  href={`/classes/${encodeURIComponent(c.course_id)}`}
+                  className="text-[9px] text-gray-700 hover:text-green-500 transition-colors"
+                >
+                  [i]
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => onRemove(c.id)}
+                  disabled={isPending}
+                  className="text-[9px] text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
+                >
+                  [×]
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function PlanningClient({ semesters, coursesBySemester }: Props) {
+  const [isSearchActive,   setIsSearchActive]   = useState(false);
   const [query,            setQuery]            = useState("");
   const [results,          setResults]          = useState<ClassResult[] | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
@@ -53,26 +135,27 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
   const [grade,            setGrade]            = useState<string>("");
   const [feedback,         setFeedback]          = useState<string | null>(null);
   const [isPending,        startTransition]      = useTransition();
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  // Reset grade input whenever the selected class changes
   useEffect(() => { setGrade(""); }, [selectedCourseId]);
 
-  // Derive which courses are already placed and in which semester
+  useEffect(() => {
+    if (isSearchActive) searchRef.current?.focus();
+  }, [isSearchActive]);
+
+  // All placed courses → map course_id → semester name
   const addedCourses = useMemo<Record<string, string>>(() => {
     const map: Record<string, string> = {};
     for (const [semName, courses] of Object.entries(coursesBySemester)) {
-      for (const c of courses) {
-        map[c.course_id] = semName;
-      }
+      for (const c of courses) map[c.course_id] = semName;
     }
     return map;
   }, [coursesBySemester]);
 
-  // Debounced search against the classes table
+  // Debounced search
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) { setResults(null); return; }
-
     const timer = setTimeout(async () => {
       const sb = createClient();
       const { data } = await sb
@@ -83,27 +166,42 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
         .limit(15);
       setResults(data ?? []);
     }, 300);
-
     return () => clearTimeout(timer);
   }, [query]);
 
+  // Group semesters by academic year (Fall 20XX is the root year of each pair)
+  const groupedSemesters = useMemo(() => {
+    const groups = new Map<number, SemesterSection[]>();
+    for (const s of semesters) {
+      const acYear = s.term === "Fall" ? s.year : s.year - 1;
+      if (!groups.has(acYear)) groups.set(acYear, []);
+      groups.get(acYear)!.push(s);
+    }
+    return Array.from(groups.entries()).sort(([a], [b]) => a - b);
+  }, [semesters]);
+
+  const startAcYear = groupedSemesters[0]?.[0] ?? 0;
+  function getYearLabel(acYear: number): string {
+    const offset = acYear - startAcYear;
+    return YEAR_LABELS[offset] ?? `Year ${offset + 1}`;
+  }
+
   function toggleSelected(courseId: string) {
-    setSelectedCourseId(prev => (prev === courseId ? null : courseId));
+    setSelectedCourseId((prev) => (prev === courseId ? null : courseId));
     setFeedback(null);
   }
 
   function handleAdd(courseId: string) {
-    const sem = semesters.find(s => s.name === targetSemName);
+    const sem = semesters.find((s) => s.name === targetSemName);
     if (!sem) return;
     const status =
       sem.type === "past"   ? "completed"   :
       sem.type === "active" ? "in_progress" : "planned";
-
     setFeedback(null);
     startTransition(async () => {
       const result = await addCourseToSemester(
         courseId, sem.term, sem.year, status,
-        sem.type === "past" ? grade : undefined   // only send grade for past sems
+        sem.type === "past" ? grade : undefined,
       );
       setFeedback(result.error ? `Error: ${result.error}` : `Added to ${sem.name}.`);
       if (!result.error) setSelectedCourseId(null);
@@ -117,168 +215,226 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
     });
   }
 
-  const typeLabel: Record<SemesterSection["type"], string> = {
-    past:     "[PAST]",
-    active:   "[CURRENT]",
-    upcoming: "[UPCOMING]",
-  };
-
-  // Is the currently chosen target semester a past one?
-  const targetSem = semesters.find(s => s.name === targetSemName);
+  const targetSem    = semesters.find((s) => s.name === targetSemName);
   const isPastTarget = targetSem?.type === "past";
 
+  // ── Render ──────────────────────────────────────────────────────────────────
+
   return (
-    <>
-      {/* ── Search ─────────────────────────────────────────────────── */}
-      <section>
-        <h2>Search Classes</h2>
-        <input
-          type="search"
-          placeholder="Search by course ID or title…"
-          value={query}
-          onChange={e => { setQuery(e.target.value); setSelectedCourseId(null); }}
-          autoComplete="off"
-        />
+    <div className="relative h-full w-full flex flex-col px-20 pt-16 overflow-y-auto scrollbar-hide">
 
-        {feedback && <p>{feedback}</p>}
+      {/* ── TOP HEADER ────────────────────────────────────────────────────── */}
+      <div className="flex justify-between items-start mb-12">
+        {/* Left spacer */}
+        <div className="flex-1" />
 
-        {results !== null && (
-          <ul>
-            {results.length === 0 && <li><em>No classes found.</em></li>}
+        {/* Search trigger / active input */}
+        <div className="w-full max-w-lg">
+          {!isSearchActive ? (
+            <button
+              onClick={() => setIsSearchActive(true)}
+              className="w-full bg-gray-950/60 border border-gray-800 p-5 text-center text-gray-500 text-[11px] tracking-[0.5em] hover:text-white transition-all uppercase"
+            >
+              [ INITIATE_MANUAL_SEARCH ]
+            </button>
+          ) : (
+            <div className="relative">
+              <input
+                ref={searchRef}
+                type="search"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setSelectedCourseId(null); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setIsSearchActive(false);
+                    setQuery("");
+                    setResults(null);
+                  }
+                }}
+                className="w-full bg-gray-950/60 border border-gray-700 p-5 text-white text-[11px] tracking-[0.3em] focus:border-white outline-none transition-colors"
+                placeholder="SEARCH_COURSE_ID_OR_TITLE..."
+                autoComplete="off"
+              />
+              <button
+                onClick={() => {
+                  setIsSearchActive(false);
+                  setQuery("");
+                  setResults(null);
+                  setSelectedCourseId(null);
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-gray-600 hover:text-white tracking-widest uppercase"
+              >
+                [×]
+              </button>
+            </div>
+          )}
+        </div>
 
-            {results.map(cls => {
-              const alreadyIn  = addedCourses[cls.course_id];
-              const isSelected = selectedCourseId === cls.course_id;
+        {/* Auto-scheduler link */}
+        <div className="flex-1 flex justify-end">
+          <Link href="/planning/recommend" className="group relative flex flex-col items-end">
+            <span className="text-[10px] text-green-500 tracking-[0.3em] font-bold mb-1 group-hover:drop-shadow-[0_0_8px_rgba(34,197,94,0.6)] transition-all">
+              AUTO_SCHEDULER_V1.0
+            </span>
+            <div className="w-32 h-px bg-green-500/30 group-hover:bg-green-500 transition-colors" />
+          </Link>
+        </div>
+      </div>
 
-              return (
-                <li key={cls.course_id}>
-                  <button
-                    type="button"
-                    onClick={() => toggleSelected(cls.course_id)}
-                    disabled={isPending}
-                  >
-                    {cls.course_id} — {cls.title} ({cls.credits} cr)
-                    {alreadyIn ? ` [in ${alreadyIn}]` : ""}
-                  </button>
-
-                  {/* ── Options panel ──────────────────────────────── */}
-                  {isSelected && (
-                    <div style={{ marginLeft: "1rem", marginTop: "0.25rem" }}>
-
-                      {/* Always visible: class info link */}
-                      <a href={`/classes/${encodeURIComponent(cls.course_id)}`}>
-                        View class info →
-                      </a>
-
-                      <br />
-
-                      {alreadyIn ? (
-                        <em>Already placed in {alreadyIn}. Remove it from that semester to move it.</em>
-                      ) : (
-                        <div style={{ marginTop: "0.25rem" }}>
-                          {/* Semester select */}
-                          <label htmlFor={`sem-select-${cls.course_id}`}>
-                            Add to semester:{" "}
-                          </label>
-                          <select
-                            id={`sem-select-${cls.course_id}`}
-                            value={targetSemName}
-                            onChange={e => setTargetSemName(e.target.value)}
-                          >
-                            {semesters.map(s => (
-                              <option key={s.name} value={s.name}>
-                                {s.name} {typeLabel[s.type]}
-                              </option>
-                            ))}
-                          </select>
-
-                          {/* Grade select — only for past semesters */}
-                          {isPastTarget && (
-                            <>
-                              {" "}
-                              <label htmlFor={`grade-${cls.course_id}`}>
-                                Grade (optional):{" "}
-                              </label>
-                              <select
-                                id={`grade-${cls.course_id}`}
-                                value={grade}
-                                onChange={e => setGrade(e.target.value)}
-                              >
-                                <option value="">—</option>
-                                {GRADE_OPTIONS.map(g => (
-                                  <option key={g} value={g}>{g}</option>
-                                ))}
-                              </select>
-                            </>
-                          )}
-
-                          {" "}
-                          <button
-                            type="button"
-                            onClick={() => handleAdd(cls.course_id)}
-                            disabled={isPending}
-                          >
-                            {isPending ? "Adding…" : "Add"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <hr />
-
-      {/* ── Semester sections ──────────────────────────────────────── */}
-      <section>
-        <h2>Your Plan</h2>
-
-        {semesters.map(sem => {
-          const courses = coursesBySemester[sem.name] ?? [];
-          const isEmpty = courses.length === 0;
-
-          return (
-            <div key={sem.name}>
-              <h3>
-                {sem.name} {typeLabel[sem.type]}
-                {sem.type === "past" && isEmpty && (
-                  <span> ⚠ No classes recorded — add completed courses above.</span>
-                )}
-              </h3>
-
-              {isEmpty ? (
-                <p><em>No classes added yet.</em></p>
-              ) : (
-                <ul>
-                  {courses.map(c => (
-                    <li key={c.id}>
-                      {c.grade && <strong>[{c.grade}]</strong>}{" "}
-                      {c.course_id} — {c.title} ({c.credits} cr)
-                      {" "}[{c.status}]
-                      {" "}
-                      <a href={`/classes/${encodeURIComponent(c.course_id)}`}>
-                        info
-                      </a>
-                      {" "}
+      {/* ── SEARCH RESULTS ────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {isSearchActive && results !== null && (
+          <motion.div
+            key="search-results"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="mb-12 w-full max-w-lg mx-auto"
+          >
+            {results.length === 0 ? (
+              <div className="border border-gray-800 p-5 text-[10px] text-gray-600 tracking-widest uppercase text-center">
+                No_Results_Found
+              </div>
+            ) : (
+              <div className="border border-gray-800 divide-y divide-gray-900">
+                {results.map((cls) => {
+                  const alreadyIn  = addedCourses[cls.course_id];
+                  const isSelected = selectedCourseId === cls.course_id;
+                  return (
+                    <div key={cls.course_id}>
+                      {/* Course row */}
                       <button
                         type="button"
-                        onClick={() => handleRemove(c.id)}
+                        onClick={() => toggleSelected(cls.course_id)}
                         disabled={isPending}
+                        className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-900/40 transition-colors group/item text-left"
                       >
-                        Remove
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[11px] text-white tracking-[0.2em]">{cls.course_id}</span>
+                          <span className="text-[10px] text-gray-500">{cls.title}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {alreadyIn && (
+                            <span className="text-[9px] text-green-600 tracking-widest uppercase">[{alreadyIn}]</span>
+                          )}
+                          <span className="text-[9px] text-gray-700">{cls.credits}cr</span>
+                          <span className={`text-[9px] transition-colors ${isSelected ? "text-green-500" : "text-gray-700 group-hover/item:text-gray-400"}`}>
+                            {isSelected ? "▲" : "▼"}
+                          </span>
+                        </div>
                       </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+
+                      {/* Options panel */}
+                      <AnimatePresence>
+                        {isSelected && (
+                          <motion.div
+                            key="options"
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="bg-gray-950/60 border-t border-gray-800 px-5 py-4 flex flex-col gap-4">
+                              {/* View class info */}
+                              <Link
+                                href={`/classes/${encodeURIComponent(cls.course_id)}`}
+                                className="text-[10px] text-green-500 tracking-[0.3em] uppercase hover:drop-shadow-[0_0_6px_rgba(34,197,94,0.5)] transition-all w-fit"
+                              >
+                                View_Class_Info →
+                              </Link>
+
+                              {alreadyIn ? (
+                                <p className="text-[10px] text-gray-600 tracking-wider uppercase">
+                                  Already_Placed_In: {alreadyIn}
+                                </p>
+                              ) : (
+                                <div className="flex flex-wrap items-end gap-4">
+                                  {/* Semester select */}
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-[9px] text-gray-700 uppercase tracking-widest">Add_To</span>
+                                    <select
+                                      value={targetSemName}
+                                      onChange={(e) => setTargetSemName(e.target.value)}
+                                      className="bg-gray-900 border border-gray-800 text-gray-300 text-[10px] px-3 py-2 outline-none focus:border-gray-600 tracking-wider"
+                                    >
+                                      {semesters.map((s) => (
+                                        <option key={s.name} value={s.name}>
+                                          {s.name}{" "}
+                                          [{s.type === "past" ? "PAST" : s.type === "active" ? "CURRENT" : "UPCOMING"}]
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {/* Grade (past sems only) */}
+                                  {isPastTarget && (
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[9px] text-gray-700 uppercase tracking-widest">Grade (opt)</span>
+                                      <select
+                                        value={grade}
+                                        onChange={(e) => setGrade(e.target.value)}
+                                        className="bg-gray-900 border border-gray-800 text-gray-300 text-[10px] px-3 py-2 outline-none focus:border-gray-600 tracking-wider"
+                                      >
+                                        <option value="">—</option>
+                                        {GRADE_OPTIONS.map((g) => (
+                                          <option key={g} value={g}>{g}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdd(cls.course_id)}
+                                    disabled={isPending}
+                                    className="px-6 py-2 bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-green-500 transition-colors disabled:opacity-50"
+                                  >
+                                    {isPending ? "Adding..." : "Add"}
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Feedback */}
+                              {feedback && selectedCourseId === cls.course_id && (
+                                <p className={`text-[10px] tracking-widest uppercase ${feedback.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+                                  {feedback}
+                                </p>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── SEMESTER SECTIONS ─────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-20 pb-32 w-full max-w-5xl mx-auto">
+        {groupedSemesters.map(([acYear, yearSems]) => (
+          <div key={acYear} className="flex flex-col gap-6">
+            <h3 className="text-gray-600 text-[10px] tracking-[0.6em] uppercase border-l-2 border-gray-900 pl-4">
+              {getYearLabel(acYear)}
+            </h3>
+            <div className="flex gap-6">
+              {yearSems.map((sem) => (
+                <SemCard
+                  key={sem.name}
+                  sem={sem}
+                  courses={coursesBySemester[sem.name] ?? []}
+                  onRemove={handleRemove}
+                  isPending={isPending}
+                />
+              ))}
             </div>
-          );
-        })}
-      </section>
-    </>
+          </div>
+        ))}
+      </div>
+
+    </div>
   );
 }

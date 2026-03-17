@@ -6,19 +6,14 @@ import type { Semester } from "@/lib/utils/planning";
 
 type Props = {
   sourceCourseIds: string[];
-  userSemesters: Semester[];
-};
-
-const TYPE_LABEL: Record<Semester["type"], string> = {
-  past:     "[PAST]",
-  active:   "[CURRENT]",
-  upcoming: "[UPCOMING]",
+  userSemesters:   Semester[];
 };
 
 export default function CopySemesterButton({ sourceCourseIds, userSemesters }: Props) {
+  const [showPicker,    setShowPicker]    = useState(false);
   const [targetSemName, setTargetSemName] = useState(userSemesters[0]?.name ?? "");
-  const [message,       setMessage]       = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [copied,        setCopied]        = useState(false);
+  const [isPending,     startTransition]  = useTransition();
 
   if (sourceCourseIds.length === 0 || userSemesters.length === 0) return null;
 
@@ -30,7 +25,6 @@ export default function CopySemesterButton({ sourceCourseIds, userSemesters }: P
       sem.type === "past"   ? "completed"   :
       sem.type === "active" ? "in_progress" : "planned";
 
-    setMessage(null);
     startTransition(async () => {
       const result = await copySemesterCourses(
         sourceCourseIds,
@@ -38,33 +32,56 @@ export default function CopySemesterButton({ sourceCourseIds, userSemesters }: P
         sem.year,
         status
       );
-      setMessage(
-        result.error
-          ? `Error: ${result.error}`
-          : `Copied to ${sem.name} — courses you already have were skipped.`
-      );
+      if (!result.error) {
+        setCopied(true);
+        setShowPicker(false);
+        setTimeout(() => setCopied(false), 2000);
+      }
     });
   }
 
   return (
-    <div>
-      <label htmlFor={`copy-target-${targetSemName}`}>Copy to my semester: </label>
-      <select
-        id={`copy-target-${targetSemName}`}
-        value={targetSemName}
-        onChange={(e) => { setTargetSemName(e.target.value); setMessage(null); }}
+    <div className="flex flex-col items-end gap-2">
+      {/* COPY / SUCCESS toggle button */}
+      <button
+        onClick={() => {
+          if (copied) return;
+          setShowPicker((prev) => !prev);
+        }}
+        disabled={isPending}
+        className={[
+          "text-[8px] tracking-[0.3em] uppercase px-2 py-1 border transition-all duration-300 self-end",
+          copied
+            ? "border-green-500 text-green-500 bg-green-500/10"
+            : "border-gray-800 text-gray-600 hover:border-gray-400 hover:text-white",
+        ].join(" ")}
       >
-        {userSemesters.map((s) => (
-          <option key={s.name} value={s.name}>
-            {s.name} {TYPE_LABEL[s.type]}
-          </option>
-        ))}
-      </select>
-      {" "}
-      <button type="button" onClick={handleCopy} disabled={isPending}>
-        {isPending ? "Copying…" : "Copy this semester"}
+        {isPending ? "..." : copied ? "SUCCESS" : "COPY"}
       </button>
-      {message && <p>{message}</p>}
+
+      {/* Semester picker (shown when COPY is toggled) */}
+      {showPicker && !copied && (
+        <div className="flex flex-col gap-2 bg-gray-950 border border-gray-800 p-3 rounded w-full">
+          <select
+            value={targetSemName}
+            onChange={(e) => setTargetSemName(e.target.value)}
+            className="w-full bg-transparent border border-gray-800 text-gray-400 text-[8px] uppercase tracking-widest px-2 py-1 outline-none focus:border-gray-600"
+          >
+            {userSemesters.map((s) => (
+              <option key={s.name} value={s.name}>
+                {s.name} [{s.type === "past" ? "PAST" : s.type === "active" ? "CURRENT" : "UPCOMING"}]
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleCopy}
+            disabled={isPending}
+            className="w-full py-1 bg-white text-black text-[8px] font-bold uppercase tracking-widest hover:bg-green-500 transition-colors disabled:opacity-50"
+          >
+            CONFIRM
+          </button>
+        </div>
+      )}
     </div>
   );
 }
