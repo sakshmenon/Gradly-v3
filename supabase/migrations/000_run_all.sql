@@ -428,3 +428,23 @@ CREATE POLICY "path_plans: delete own"
 ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS starting_semester   TEXT,
     ADD COLUMN IF NOT EXISTS expected_graduation TEXT;
+
+
+-- =============================================================
+-- Migration 004: Public Visibility Default
+-- =============================================================
+
+ALTER TABLE public.users
+    ALTER COLUMN visibility SET DEFAULT 'public';
+
+UPDATE public.users
+SET visibility = 'public'
+WHERE visibility = 'friends_only';
+
+
+-- =============================================================
+-- Migration 005: Course Ratings Semester Taken
+-- =============================================================
+
+ALTER TABLE public.course_ratings
+    ADD COLUMN IF NOT EXISTS semester_taken TEXT;

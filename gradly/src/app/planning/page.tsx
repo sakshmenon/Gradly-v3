@@ -9,6 +9,7 @@ type RawCourseRow = {
   semester: string;
   year: number;
   status: string;
+  grade: string | null;
   classes: { course_id: string; title: string; credits: number } | null;
 };
 
@@ -49,7 +50,7 @@ export default async function PlanningPage() {
   // ── Fetch the user's placed courses with class details ────────
   const { data: rawCourses } = await supabase
     .from("user_courses")
-    .select("id, semester, year, status, classes(course_id, title, credits)")
+    .select("id, semester, year, status, grade, classes(course_id, title, credits)")
     .eq("user_id", user.id);
 
   // Group courses by "Term YYYY" key
@@ -59,11 +60,12 @@ export default async function PlanningPage() {
     const key = `${row.semester} ${row.year}`;
     if (!coursesBySemester[key]) coursesBySemester[key] = [];
     coursesBySemester[key].push({
-      id:       row.id,
+      id:        row.id,
       course_id: row.classes.course_id,
-      title:    row.classes.title,
-      credits:  row.classes.credits,
-      status:   row.status,
+      title:     row.classes.title,
+      credits:   row.classes.credits,
+      status:    row.status,
+      grade:     row.grade,
     });
   }
 
@@ -75,6 +77,8 @@ export default async function PlanningPage() {
           {starting_semester} → {expected_graduation}
         </p>
         <Link href="/">← Back to Home</Link>
+        {" | "}
+        <Link href="/planning/recommend">✦ Get Recommended Plan</Link>
       </header>
 
       <PlanningClient

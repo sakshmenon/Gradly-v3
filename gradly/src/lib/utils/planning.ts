@@ -19,6 +19,26 @@ const TERMS: SemesterTerm[] = ["Spring", "Summer", "Fall"];
 export const AVAILABLE_MAJORS = ["Computer Science"] as const;
 export type Major = (typeof AVAILABLE_MAJORS)[number];
 
+// ── Year-in-school ────────────────────────────────────────────────────────────
+
+/**
+ * Returns a label like "Freshman", "Sophomore", etc. based on
+ * the number of semesters elapsed since the student's starting semester.
+ * Each academic year spans 3 semesters (Spring, Summer, Fall).
+ */
+export function getYearInSchool(startingSemester: string): string {
+  const current = getCurrentSemesterName();
+  const s = parseSemester(startingSemester);
+  const c = parseSemester(current);
+  const elapsed = semIdx(c.term, c.year) - semIdx(s.term, s.year);
+  if (elapsed < 0)  return "Incoming";
+  if (elapsed < 3)  return "Freshman";
+  if (elapsed < 6)  return "Sophomore";
+  if (elapsed < 9)  return "Junior";
+  if (elapsed < 12) return "Senior";
+  return "Super Senior";
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function parseSemester(s: string): { term: SemesterTerm; year: number; name: string } {
@@ -76,6 +96,34 @@ export function generateSemesterRange(
  * Returns names of all semesters strictly before `currentSemester`,
  * starting from `startSemester`. Used for the "empty past semesters" alert.
  */
+/**
+ * Returns semesters from the one AFTER `currentSemester` through
+ * `expectedGraduation` — these are the slots the recommendation algorithm
+ * can schedule courses into.
+ *
+ * Summer semesters are excluded by default (most students don't take them).
+ */
+export function getFuturePlanSemesters(
+  currentSemester:    string,
+  expectedGraduation: string,
+  includeSummer = false
+): Array<{ semester: string; year: number }> {
+  const c    = parseSemester(currentSemester);
+  const grad = parseSemester(expectedGraduation);
+
+  const nextIdx = semIdx(c.term, c.year) + 1;
+  const gradIdx = semIdx(grad.term, grad.year);
+
+  const result: Array<{ semester: string; year: number }> = [];
+  for (let i = nextIdx; i <= gradIdx; i++) {
+    const year = Math.floor(i / 3);
+    const term = TERMS[i % 3];
+    if (!includeSummer && term === "Summer") continue;
+    result.push({ semester: term, year });
+  }
+  return result;
+}
+
 export function getPastSemesterNames(
   startSemester: string,
   currentSemester: string

@@ -19,6 +19,7 @@ export type CourseEntry = {
   title: string;
   credits: number;
   status: string;
+  grade?: string | null;
 };
 
 type ClassResult = {
@@ -33,6 +34,15 @@ type Props = {
   coursesBySemester: Record<string, CourseEntry[]>;
 };
 
+// Standard letter grades for the grade select
+const GRADE_OPTIONS = [
+  "A", "A-",
+  "B+", "B", "B-",
+  "C+", "C", "C-",
+  "D+", "D", "D-",
+  "F", "W", "I", "P",
+];
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PlanningClient({ semesters, coursesBySemester }: Props) {
@@ -40,8 +50,12 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
   const [results,          setResults]          = useState<ClassResult[] | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [targetSemName,    setTargetSemName]     = useState<string>(semesters[0]?.name ?? "");
+  const [grade,            setGrade]            = useState<string>("");
   const [feedback,         setFeedback]          = useState<string | null>(null);
   const [isPending,        startTransition]      = useTransition();
+
+  // Reset grade input whenever the selected class changes
+  useEffect(() => { setGrade(""); }, [selectedCourseId]);
 
   // Derive which courses are already placed and in which semester
   const addedCourses = useMemo<Record<string, string>>(() => {
@@ -82,13 +96,15 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
     const sem = semesters.find(s => s.name === targetSemName);
     if (!sem) return;
     const status =
-      sem.type === "past"     ? "completed"   :
-      sem.type === "active"   ? "in_progress" :
-                                "planned";
+      sem.type === "past"   ? "completed"   :
+      sem.type === "active" ? "in_progress" : "planned";
 
     setFeedback(null);
     startTransition(async () => {
-      const result = await addCourseToSemester(courseId, sem.term, sem.year, status);
+      const result = await addCourseToSemester(
+        courseId, sem.term, sem.year, status,
+        sem.type === "past" ? grade : undefined   // only send grade for past sems
+      );
       setFeedback(result.error ? `Error: ${result.error}` : `Added to ${sem.name}.`);
       if (!result.error) setSelectedCourseId(null);
     });
@@ -106,6 +122,10 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
     active:   "[CURRENT]",
     upcoming: "[UPCOMING]",
   };
+
+  // Is the currently chosen target semester a past one?
+  const targetSem = semesters.find(s => s.name === targetSemName);
+  const isPastTarget = targetSem?.type === "past";
 
   return (
     <>
@@ -141,14 +161,25 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
                     {alreadyIn ? ` [in ${alreadyIn}]` : ""}
                   </button>
 
-                  {/* Options panel */}
+                  {/* ── Options panel ──────────────────────────────── */}
                   {isSelected && (
                     <div style={{ marginLeft: "1rem", marginTop: "0.25rem" }}>
+
+                      {/* Always visible: class info link */}
+                      <a href={`/classes/${encodeURIComponent(cls.course_id)}`}>
+                        View class info →
+                      </a>
+
+                      <br />
+
                       {alreadyIn ? (
                         <em>Already placed in {alreadyIn}. Remove it from that semester to move it.</em>
                       ) : (
-                        <>
-                          <label htmlFor={`sem-select-${cls.course_id}`}>Add to semester: </label>
+                        <div style={{ marginTop: "0.25rem" }}>
+                          {/* Semester select */}
+                          <label htmlFor={`sem-select-${cls.course_id}`}>
+                            Add to semester:{" "}
+                          </label>
                           <select
                             id={`sem-select-${cls.course_id}`}
                             value={targetSemName}
@@ -160,6 +191,27 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
                               </option>
                             ))}
                           </select>
+
+                          {/* Grade select — only for past semesters */}
+                          {isPastTarget && (
+                            <>
+                              {" "}
+                              <label htmlFor={`grade-${cls.course_id}`}>
+                                Grade (optional):{" "}
+                              </label>
+                              <select
+                                id={`grade-${cls.course_id}`}
+                                value={grade}
+                                onChange={e => setGrade(e.target.value)}
+                              >
+                                <option value="">—</option>
+                                {GRADE_OPTIONS.map(g => (
+                                  <option key={g} value={g}>{g}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+
                           {" "}
                           <button
                             type="button"
@@ -168,7 +220,7 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
                           >
                             {isPending ? "Adding…" : "Add"}
                           </button>
-                        </>
+                        </div>
                       )}
                     </div>
                   )}
@@ -204,8 +256,13 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
                 <ul>
                   {courses.map(c => (
                     <li key={c.id}>
+                      {c.grade && <strong>[{c.grade}]</strong>}{" "}
                       {c.course_id} — {c.title} ({c.credits} cr)
                       {" "}[{c.status}]
+                      {" "}
+                      <a href={`/classes/${encodeURIComponent(c.course_id)}`}>
+                        info
+                      </a>
                       {" "}
                       <button
                         type="button"

@@ -7,18 +7,20 @@ export async function addCourseToSemester(
   courseId: string,
   term: string,
   year: number,
-  status: "completed" | "in_progress" | "planned"
+  status: "completed" | "in_progress" | "planned",
+  grade?: string          // optional — recorded for past-semester additions
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
   const { error } = await supabase.from("user_courses").insert({
-    user_id:  user.id,
+    user_id:   user.id,
     course_id: courseId,
-    semester: term,
+    semester:  term,
     year,
     status,
+    grade:     grade?.trim() || null,
   });
 
   if (error) return { error: error.message };
