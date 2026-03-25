@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition, useMemo, useRef } from "react";
+import { useState, useEffect, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
@@ -126,8 +126,10 @@ function SemCard({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+const SEARCH_RESULT_LIMIT = 100;
+
 export default function PlanningClient({ semesters, coursesBySemester }: Props) {
-  const [isSearchActive,   setIsSearchActive]   = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [query,            setQuery]            = useState("");
   const [results,          setResults]          = useState<ClassResult[] | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
@@ -135,13 +137,16 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
   const [grade,            setGrade]            = useState<string>("");
   const [feedback,         setFeedback]          = useState<string | null>(null);
   const [isPending,        startTransition]      = useTransition();
-  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setGrade(""); }, [selectedCourseId]);
 
-  useEffect(() => {
-    if (isSearchActive) searchRef.current?.focus();
-  }, [isSearchActive]);
+  function closeSearchModal() {
+    setIsSearchModalOpen(false);
+    setQuery("");
+    setResults(null);
+    setSelectedCourseId(null);
+    setFeedback(null);
+  }
 
   // All placed courses → map course_id → semester name
   const addedCourses = useMemo<Record<string, string>>(() => {
@@ -152,10 +157,10 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
     return map;
   }, [coursesBySemester]);
 
-  // Debounced search
+  // Debounced search (only when modal is open)
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) { setResults(null); return; }
+    if (!trimmed || !isSearchModalOpen) { setResults(null); return; }
     const timer = setTimeout(async () => {
       const sb = createClient();
       const { data } = await sb
@@ -163,11 +168,11 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
         .select("course_id, title, credits, subject")
         .or(`course_id.ilike.%${trimmed}%,title.ilike.%${trimmed}%`)
         .order("course_id")
-        .limit(15);
+        .limit(SEARCH_RESULT_LIMIT);
       setResults(data ?? []);
     }, 300);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, isSearchModalOpen]);
 
   // Group semesters by academic year (Fall 20XX is the root year of each pair)
   const groupedSemesters = useMemo(() => {
@@ -228,46 +233,14 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
         {/* Left spacer */}
         <div className="flex-1" />
 
-        {/* Search trigger / active input */}
+        {/* Search trigger */}
         <div className="w-full max-w-lg">
-          {!isSearchActive ? (
-            <button
-              onClick={() => setIsSearchActive(true)}
-              className="w-full bg-gray-950/60 border border-gray-800 p-5 text-center text-gray-500 text-[11px] tracking-[0.5em] hover:text-white transition-all uppercase"
-            >
-              [ INITIATE_MANUAL_SEARCH ]
-            </button>
-          ) : (
-            <div className="relative">
-              <input
-                ref={searchRef}
-                type="search"
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setSelectedCourseId(null); }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setIsSearchActive(false);
-                    setQuery("");
-                    setResults(null);
-                  }
-                }}
-                className="w-full bg-gray-950/60 border border-gray-700 p-5 text-white text-[11px] tracking-[0.3em] focus:border-white outline-none transition-colors"
-                placeholder="SEARCH_COURSE_ID_OR_TITLE..."
-                autoComplete="off"
-              />
-              <button
-                onClick={() => {
-                  setIsSearchActive(false);
-                  setQuery("");
-                  setResults(null);
-                  setSelectedCourseId(null);
-                }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-gray-600 hover:text-white tracking-widest uppercase"
-              >
-                [×]
-              </button>
-            </div>
-          )}
+          <button
+            onClick={() => setIsSearchModalOpen(true)}
+            className="w-full bg-gray-950/60 border border-gray-800 p-5 text-center text-gray-500 text-[11px] tracking-[0.5em] hover:text-white transition-all "
+          >
+            Search Classes
+          </button>
         </div>
 
         {/* Auto-scheduler link */}
@@ -281,135 +254,163 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
         </div>
       </div>
 
-      {/* ── SEARCH RESULTS ────────────────────────────────────────────────── */}
+      {/* ── Search modal overlay ───────────────────────────────────────────── */}
       <AnimatePresence>
-        {isSearchActive && results !== null && (
-          <motion.div
-            key="search-results"
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="mb-12 w-full max-w-lg mx-auto"
-          >
-            {results.length === 0 ? (
-              <div className="border border-gray-800 p-5 text-[10px] text-gray-600 tracking-widest uppercase text-center">
-                No_Results_Found
-              </div>
-            ) : (
-              <div className="border border-gray-800 divide-y divide-gray-900">
-                {results.map((cls) => {
-                  const alreadyIn  = addedCourses[cls.course_id];
-                  const isSelected = selectedCourseId === cls.course_id;
-                  return (
-                    <div key={cls.course_id}>
-                      {/* Course row */}
-                      <button
-                        type="button"
-                        onClick={() => toggleSelected(cls.course_id)}
-                        disabled={isPending}
-                        className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-900/40 transition-colors group/item text-left"
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-[11px] text-white tracking-[0.2em]">{cls.course_id}</span>
-                          <span className="text-[10px] text-gray-500">{cls.title}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {alreadyIn && (
-                            <span className="text-[9px] text-green-600 tracking-widest uppercase">[{alreadyIn}]</span>
-                          )}
-                          <span className="text-[9px] text-gray-700">{cls.credits}cr</span>
-                          <span className={`text-[9px] transition-colors ${isSelected ? "text-green-500" : "text-gray-700 group-hover/item:text-gray-400"}`}>
-                            {isSelected ? "▲" : "▼"}
-                          </span>
-                        </div>
-                      </button>
+        {isSearchModalOpen && (
+          <div className="fixed inset-0 z-30 flex items-center justify-center">
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-black/80"
+              onClick={closeSearchModal}
+            />
 
-                      {/* Options panel */}
-                      <AnimatePresence>
-                        {isSelected && (
-                          <motion.div
-                            key="options"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="bg-gray-950/60 border-t border-gray-800 px-5 py-4 flex flex-col gap-4">
-                              {/* View class info */}
-                              <Link
-                                href={`/classes/${encodeURIComponent(cls.course_id)}`}
-                                className="text-[10px] text-green-500 tracking-[0.3em] uppercase hover:drop-shadow-[0_0_6px_rgba(34,197,94,0.5)] transition-all w-fit"
-                              >
-                                View_Class_Info →
-                              </Link>
+            <motion.div
+              initial={{ scale: 0.98, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.98, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative z-10 w-[500px] max-h-[85vh] flex flex-col bg-gray-950 rounded-4xl p-10 shadow-2xl"
+            >
+              {/* Search input */}
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setSelectedCourseId(null); setFeedback(null); }}
+                onKeyDown={(e) => e.key === "Escape" && closeSearchModal()}
+                className="w-full bg-transparent border-b border-gray-800 text-2xl py-4 outline-none focus:border-green-500 font text-white mb-7 tracking-[0.2em]"
+                placeholder="search classes"
+                autoComplete="off"
+              />
 
-                              {alreadyIn ? (
-                                <p className="text-[10px] text-gray-600 tracking-wider uppercase">
-                                  Already_Placed_In: {alreadyIn}
-                                </p>
-                              ) : (
-                                <div className="flex flex-wrap items-end gap-4">
-                                  {/* Semester select */}
-                                  <div className="flex flex-col gap-1">
-                                    <span className="text-[9px] text-gray-700 uppercase tracking-widest">Add_To</span>
-                                    <select
-                                      value={targetSemName}
-                                      onChange={(e) => setTargetSemName(e.target.value)}
-                                      className="bg-gray-900 border border-gray-800 text-gray-300 text-[10px] px-3 py-2 outline-none focus:border-gray-600 tracking-wider"
-                                    >
-                                      {semesters.map((s) => (
-                                        <option key={s.name} value={s.name}>
-                                          {s.name}{" "}
-                                          [{s.type === "past" ? "PAST" : s.type === "active" ? "CURRENT" : "UPCOMING"}]
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  {/* Grade (past sems only) */}
-                                  {isPastTarget && (
-                                    <div className="flex flex-col gap-1">
-                                      <span className="text-[9px] text-gray-700 uppercase tracking-widest">Grade (opt)</span>
-                                      <select
-                                        value={grade}
-                                        onChange={(e) => setGrade(e.target.value)}
-                                        className="bg-gray-900 border border-gray-800 text-gray-300 text-[10px] px-3 py-2 outline-none focus:border-gray-600 tracking-wider"
-                                      >
-                                        <option value="">—</option>
-                                        {GRADE_OPTIONS.map((g) => (
-                                          <option key={g} value={g}>{g}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAdd(cls.course_id)}
-                                    disabled={isPending}
-                                    className="px-6 py-2 bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-green-500 transition-colors disabled:opacity-50"
-                                  >
-                                    {isPending ? "Adding..." : "Add"}
-                                  </button>
-                                </div>
-                              )}
-
-                              {/* Feedback */}
-                              {feedback && selectedCourseId === cls.course_id && (
-                                <p className={`text-[10px] tracking-widest uppercase ${feedback.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
-                                  {feedback}
-                                </p>
-                              )}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+              {/* Results */}
+              {results !== null && (
+                <div className="space-y-1 overflow-y-auto scrollbar-hide max-h-[50vh] pr-2">
+                  {results.length === 0 ? (
+                    <div className="p-4 text-[10px] text-gray tracking-widest text-center">
+                      No results found
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
+                  ) : (
+                    <div>
+                      {results.map((cls) => {
+                        const alreadyIn  = addedCourses[cls.course_id];
+                        const isSelected = selectedCourseId === cls.course_id;
+                        return (
+                          <div key={cls.course_id}>
+                            {/* Course row */}
+                            <button
+                              type="button"
+                              onClick={() => toggleSelected(cls.course_id)}
+                              disabled={isPending}
+                              className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-900/40 transition-colors group/item text-left"
+                            >
+                              <div className="flex flex-col gap-0.5 min-w-0">
+                                <span className="text-[11px] text-white tracking-[0.2em]">{cls.course_id}</span>
+                                <span className="text-[10px] text-gray-500 truncate">{cls.title}</span>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                {alreadyIn && (
+                                  <span className="text-green-500 font-bold" title={alreadyIn}>✓</span>
+                                )}
+                                <span className="text-[15px] text-gray-700">{cls.credits}cr</span>
+                                <span className={`text-[9px] transition-colors ${isSelected ? "text-green-500" : "text-gray-700 group-hover/item:text-gray-400"}`}>
+                                  {isSelected ? "▲" : "▼"}
+                                </span>
+                              </div>
+                            </button>
+
+                            {/* Options panel */}
+                            <AnimatePresence>
+                              {isSelected && (
+                                <motion.div
+                                  key="options"
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: "auto" }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="bg-gray-950/60 border-t border-gray-800 px-5 py-4 flex flex-col gap-4">
+                                    <Link
+                                      href={`/classes/${encodeURIComponent(cls.course_id)}`}
+                                      className="text-[10px] text-green-500 tracking-[0.3em] hover:drop-shadow-[0_0_6px_rgba(34,197,94,0.5)] transition-all w-fit"
+                                    >
+                                      Class Info →
+                                    </Link>
+
+                                    {alreadyIn ? (
+                                      <p className="text-[10px] text-gray-600 tracking-wider">
+                                        Taken: {alreadyIn}
+                                      </p>
+                                    ) : (
+                                      <div className="flex flex-wrap items-end gap-4">
+                                        <div className="flex flex-col gap-1">
+                                          <span className="text-[9px] text-gray-700 uppercase tracking-widest">Add_To</span>
+                                          <select
+                                            value={targetSemName}
+                                            onChange={(e) => setTargetSemName(e.target.value)}
+                                            className="bg-gray-900 border border-gray-800 text-gray-300 text-[10px] px-3 py-2 outline-none focus:border-gray-600 tracking-wider"
+                                          >
+                                            {semesters.map((s) => (
+                                              <option key={s.name} value={s.name}>
+                                                {s.name}{" "}
+                                                [{s.type === "past" ? "PAST" : s.type === "active" ? "CURRENT" : "UPCOMING"}]
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+
+                                        {isPastTarget && (
+                                          <div className="flex flex-col gap-1">
+                                            <span className="text-[9px] text-gray-700 uppercase tracking-widest">Grade (opt)</span>
+                                            <select
+                                              value={grade}
+                                              onChange={(e) => setGrade(e.target.value)}
+                                              className="bg-gray-900 border border-gray-800 text-gray-300 text-[10px] px-3 py-2 outline-none focus:border-gray-600 tracking-wider"
+                                            >
+                                              <option value="">—</option>
+                                              {GRADE_OPTIONS.map((g) => (
+                                                <option key={g} value={g}>{g}</option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        )}
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAdd(cls.course_id)}
+                                          disabled={isPending}
+                                          className="px-6 py-2 bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-green-500 transition-colors disabled:opacity-50"
+                                        >
+                                          {isPending ? "Adding..." : "Add"}
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {feedback && selectedCourseId === cls.course_id && (
+                                      <p className={`text-[10px] tracking-widest uppercase ${feedback.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+                                        {feedback}
+                                      </p>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Exit */}
+              <button
+                onClick={closeSearchModal}
+                className="mt-6 w-full text-[9px] text-gray-700 hover:text-gray-400 tracking-widest transition-colors text-center"
+              >
+                exit
+              </button>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
