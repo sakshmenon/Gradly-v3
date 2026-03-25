@@ -134,9 +134,9 @@ export default async function ProfilePage() {
         </div>
         <div>
           <p className="text-gray-600 text-[10px] tracking-[0.5em] uppercase mb-2">
-            User_Registry
+            Profile
           </p>
-          <h1 className="text-5xl font-bold tracking-tight uppercase italic">
+          <h1 className="text-5xl font-bold tracking-tight">
             {displayName}
           </h1>
         </div>
@@ -150,7 +150,7 @@ export default async function ProfilePage() {
         {/* Left: Identity Parameters */}
         <section className="w-72 flex flex-col gap-6 flex-shrink-0 overflow-hidden">
           <h3 className="text-gray-600 text-[10px] tracking-[0.5em] uppercase flex-shrink-0">
-            Identity_Parameters
+            Profile info
           </h3>
           <div className="flex-1 overflow-hidden">
             <ProfileForm
@@ -168,18 +168,18 @@ export default async function ProfilePage() {
 
         {/* Right: Temporal Logs */}
         <section className="flex-1 flex flex-col gap-8 overflow-hidden min-w-0">
-          <h3 className="text-gray-600 text-[10px] tracking-[0.5em] uppercase flex-shrink-0">
-            Temporal_Logs
+          <h3 className="text-gray-600 text-[15px] tracking-[0.5em] flex-shrink-0">
+            Semesters
           </h3>
 
           {semesterCards.length === 0 ? (
             <div className="flex items-start pt-4">
               <div className="border border-gray-900 px-8 py-6">
-                <p className="text-[10px] text-gray-700 tracking-[0.5em] uppercase mb-3">
-                  No_Data_Available
+                <p className="text-[15px] text-gray-700 tracking-[0.5em] uppercase mb-3">
+                  no data available
                 </p>
                 <p className="text-gray-600 text-xs tracking-wider mb-4">
-                  Set your semester range in Identity_Parameters to view temporal logs.
+                  Set your semester range in Identity_Parameters to view semesters.
                 </p>
               </div>
             </div>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { updateProfile, sendPasswordResetEmail } from "./actions";
 import { AVAILABLE_MAJORS } from "@/lib/utils/planning";
 
-type ProfileData = {
+type ProfileData = {x
   display_name:        string | null;
   email:               string;
   major:               string | null;
@@ -92,7 +92,7 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
       <div className="space-y-6 flex-1 overflow-y-auto scrollbar-hide pr-1">
         <Field label="Display_Name">
           <input
-            name="display_name"
+            name="Name"
             type="text"
             defaultValue={profile.display_name ?? ""}
             placeholder="UNDEFINED"
@@ -100,7 +100,7 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
           />
         </Field>
 
-        <Field label="Terminal_Email">
+        <Field label="Email">
           <input
             type="email"
             value={profile.email}
@@ -123,7 +123,7 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
           </select>
         </Field>
 
-        <Field label="Starting_Semester">
+        <Field label="Starting Semester">
           <select
             name="starting_semester"
             defaultValue={profile.starting_semester ?? ""}
@@ -136,7 +136,7 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
           </select>
         </Field>
 
-        <Field label="Expected_Graduation">
+        <Field label="Expected Graduation">
           <select
             name="expected_graduation"
             defaultValue={profile.expected_graduation ?? ""}
@@ -149,7 +149,7 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
           </select>
         </Field>
 
-        <Field label="GPA_Override">
+        <Field label="GPA">
           <input
             name="gpa"
             type="number"

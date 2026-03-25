@@ -79,6 +79,7 @@ export default async function PlanningPage() {
 
   return (
     <PlanningClient
+      currentUserId={user.id}
       semesters={semesters}
       coursesBySemester={coursesBySemester}
     />

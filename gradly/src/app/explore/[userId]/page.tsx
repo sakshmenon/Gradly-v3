@@ -38,21 +38,21 @@ function SemesterCard({
         ].join(" ")}
       >
         <div className="flex justify-between items-start mb-6">
-          <span className="text-xl font-bold tracking-widest uppercase">{semesterName}</span>
+          <span className="text-xl font tracking-widest">{semesterName}</span>
           <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-gray-800"}`} />
         </div>
         <ul className="space-y-4">
           {courses.slice(0, 4).map((c) => (
             <li
               key={c.course_id}
-              className="text-[11px] text-gray-400 tracking-[0.2em] uppercase flex items-center gap-3"
+              className="text-[11px] text-gray-400 tracking-[0.2em] flex items-center gap-3"
             >
               <div className="w-1 h-px bg-gray-700" />
               {c.course_id}
             </li>
           ))}
           {courses.length === 0 && (
-            <li className="text-[11px] text-gray-700 tracking-[0.2em] uppercase flex items-center gap-3">
+            <li className="text-[11px] text-gray-700 tracking-[0.2em] flex items-center gap-3">
               <div className="w-1 h-px bg-gray-700" />
               No_Courses_Recorded
             </li>
@@ -159,7 +159,7 @@ export default async function UserProfilePage({
 
           {/* Name + info */}
           <div>
-            <h1 className="text-5xl font-bold tracking-tighter uppercase italic mb-4">
+            <h1 className="text-5xl font-bold tracking-tighter uppercase mb-4">
               {displayName}
             </h1>
             <div className="flex gap-8 text-[10px] tracking-[0.3em] text-gray-500 uppercase">
@@ -195,7 +195,7 @@ export default async function UserProfilePage({
       {/* ── Schedule preview section ─────────────────────────────────────── */}
       <div className="flex-1 flex flex-col pt-10 overflow-hidden">
         <h3 className="text-gray-700 text-[10px] tracking-[0.6em] uppercase mb-8 pl-2">
-          Temporal_Data_Feed
+          Semesters
         </h3>
 
         <div className="flex gap-8 overflow-x-auto pb-10 scrollbar-hide">
@@ -212,7 +212,7 @@ export default async function UserProfilePage({
           href="/explore"
           className="mt-auto mb-10 text-[9px] text-gray-800 tracking-[0.5em] hover:text-white uppercase transition-colors self-start underline underline-offset-8"
         >
-          Return_to_Network
+          Return to Network
         </Link>
       </div>
     </div>

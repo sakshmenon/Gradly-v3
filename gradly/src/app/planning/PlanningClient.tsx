@@ -31,7 +31,10 @@ type ClassResult = {
   subject: string;
 };
 
+const SEMESTER_CARD_PREVIEW_LIMIT = 3;
+
 type Props = {
+  currentUserId: string;
   semesters: SemesterSection[];
   coursesBySemester: Record<string, CourseEntry[]>;
 };
@@ -47,11 +50,13 @@ const YEAR_LABELS = ["Freshman", "Sophomore", "Junior", "Senior", "Graduate"];
 function SemCard({
   sem,
   courses,
+  onExpand,
   onRemove,
   isPending,
 }: {
   sem: SemesterSection;
   courses: CourseEntry[];
+  onExpand: () => void;
   onRemove: (id: string) => void;
   isPending: boolean;
 }) {
@@ -59,12 +64,20 @@ function SemCard({
   const isActive   = sem.type === "active";
   const isPastEmpty = sem.type === "past" && isEmpty;
   const totalCr    = courses.reduce((s, c) => s + c.credits, 0);
+  const previewCourses = courses.slice(0, SEMESTER_CARD_PREVIEW_LIMIT);
+  const hasMore      = courses.length > SEMESTER_CARD_PREVIEW_LIMIT;
+  const moreCount    = courses.length - SEMESTER_CARD_PREVIEW_LIMIT;
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={onExpand}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onExpand()}
       className={[
-        "flex-1 min-h-[140px] rounded-xl p-5 backdrop-blur-sm flex flex-col gap-3 transition-colors",
+        "flex-1 min-h-[140px] rounded-xl p-5 backdrop-blur-sm flex flex-col gap-3 transition-colors text-left cursor-pointer",
         "bg-gray-950/40 border",
+        "hover:border-gray-700",
         isActive    ? "border-green-900/70"   :
         isPastEmpty ? "border-red-900/40"     :
                       "border-gray-900",
@@ -83,15 +96,16 @@ function SemCard({
           {isActive   && <span className="text-[8px] text-green-500 tracking-widest uppercase animate-pulse">◉ LIVE</span>}
           {isPastEmpty && <span className="text-[8px] text-red-500/60  tracking-widest uppercase">⚠ EMPTY</span>}
           {totalCr > 0 && <span className="text-[9px] text-gray-700 tracking-widest">{totalCr}cr</span>}
+          {hasMore && <span className="text-[8px] text-gray-600 tracking-widest">[VIEW_ALL]</span>}
         </div>
       </div>
 
-      {/* Course list */}
+      {/* Course list (max 3) */}
       {isEmpty ? (
         <div className="text-[10px] text-gray-800 italic uppercase mt-auto">Null_Payload</div>
       ) : (
         <div className="flex flex-col gap-1.5 flex-1">
-          {courses.map((c) => (
+          {previewCourses.map((c) => (
             <div key={c.id} className="flex items-center justify-between gap-2 group/row">
               <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
                 {c.grade && (
@@ -103,13 +117,14 @@ function SemCard({
                 <span className="text-[9px] text-gray-700">{c.credits}cr</span>
                 <Link
                   href={`/classes/${encodeURIComponent(c.course_id)}`}
+                  onClick={(e) => e.stopPropagation()}
                   className="text-[9px] text-gray-700 hover:text-green-500 transition-colors"
                 >
                   [i]
                 </Link>
                 <button
                   type="button"
-                  onClick={() => onRemove(c.id)}
+                  onClick={(e) => { e.stopPropagation(); onRemove(c.id); }}
                   disabled={isPending}
                   className="text-[9px] text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
                 >
@@ -118,6 +133,11 @@ function SemCard({
               </div>
             </div>
           ))}
+          {hasMore && (
+            <div className="text-[9px] text-gray-600 tracking-wider mt-0.5">
+              +{moreCount} more
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -128,15 +148,17 @@ function SemCard({
 
 const SEARCH_RESULT_LIMIT = 100;
 
-export default function PlanningClient({ semesters, coursesBySemester }: Props) {
-  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-  const [query,            setQuery]            = useState("");
-  const [results,          setResults]          = useState<ClassResult[] | null>(null);
-  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [targetSemName,    setTargetSemName]     = useState<string>(semesters[0]?.name ?? "");
-  const [grade,            setGrade]            = useState<string>("");
-  const [feedback,         setFeedback]          = useState<string | null>(null);
-  const [isPending,        startTransition]      = useTransition();
+export default function PlanningClient({ currentUserId, semesters, coursesBySemester }: Props) {
+  const [isSearchModalOpen,    setIsSearchModalOpen]    = useState(false);
+  const [expandedSemester,    setExpandedSemester]     = useState<string | null>(null);
+  const [professorByCourse,   setProfessorByCourse]     = useState<Record<string, string>>({});
+  const [query,               setQuery]                = useState("");
+  const [results,             setResults]              = useState<ClassResult[] | null>(null);
+  const [selectedCourseId,    setSelectedCourseId]     = useState<string | null>(null);
+  const [targetSemName,       setTargetSemName]        = useState<string>(semesters[0]?.name ?? "");
+  const [grade,               setGrade]                = useState<string>("");
+  const [feedback,            setFeedback]             = useState<string | null>(null);
+  const [isPending,           startTransition]         = useTransition();
 
   useEffect(() => { setGrade(""); }, [selectedCourseId]);
 
@@ -147,6 +169,44 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
     setSelectedCourseId(null);
     setFeedback(null);
   }
+
+  function closeSemesterModal() {
+    setExpandedSemester(null);
+    setProfessorByCourse({});
+  }
+
+  // Close semester modal on Escape
+  useEffect(() => {
+    if (!expandedSemester) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeSemesterModal();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [expandedSemester]);
+
+  // Fetch professor names from course_ratings when semester detail modal opens
+  useEffect(() => {
+    if (!expandedSemester || !currentUserId) return;
+    const courses = coursesBySemester[expandedSemester] ?? [];
+    if (courses.length === 0) return;
+
+    const courseIds = courses.map((c) => c.course_id);
+    const sb = createClient();
+    sb
+      .from("course_ratings")
+      .select("course_id, professor_name")
+      .eq("user_id", currentUserId)
+      .in("course_id", courseIds)
+      .then(({ data }) => {
+        const map: Record<string, string> = {};
+        for (const row of data ?? []) {
+          const r = row as { course_id: string; professor_name: string | null };
+          if (r.professor_name?.trim()) map[r.course_id] = r.professor_name.trim();
+        }
+        setProfessorByCourse(map);
+      });
+  }, [expandedSemester, currentUserId, coursesBySemester]);
 
   // All placed courses → map course_id → semester name
   const addedCourses = useMemo<Record<string, string>>(() => {
@@ -309,7 +369,7 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
                               </div>
                               <div className="flex items-center gap-3 shrink-0">
                                 {alreadyIn && (
-                                  <span className="text-green-500 font-bold" title={alreadyIn}>✓</span>
+                                  <span className="text-green-500 font" title={alreadyIn}>✓</span>
                                 )}
                                 <span className="text-[15px] text-gray-700">{cls.credits}cr</span>
                                 <span className={`text-[9px] transition-colors ${isSelected ? "text-green-500" : "text-gray-700 group-hover/item:text-gray-400"}`}>
@@ -414,6 +474,101 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
         )}
       </AnimatePresence>
 
+      {/* ── Semester detail overlay ─────────────────────────────────────────── */}
+      <AnimatePresence>
+        {expandedSemester && (() => {
+          const sem = semesters.find((s) => s.name === expandedSemester);
+          const courses = coursesBySemester[expandedSemester] ?? [];
+          const totalCr = courses.reduce((s, c) => s + c.credits, 0);
+          return (
+            <div className="fixed inset-0 z-30 flex items-center justify-center">
+              <div
+                className="absolute inset-0 bg-black/80"
+                onClick={closeSemesterModal}
+              />
+              <motion.div
+                initial={{ scale: 0.98, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.98, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative z-10 w-[500px] max-h-[85vh] flex flex-col bg-gray-950 border border-gray-800 rounded-xl p-10 shadow-2xl"
+              >
+                {/* Header */}
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h2 className="text-2xl font text-white lowercase mb-1 tracking-[0.2em]">
+                      {expandedSemester}
+                    </h2>
+                    <p className="text-[10px] text-gray-500 tracking-widest">
+                      {totalCr} credits · {courses.length} course{courses.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <span className={`text-[9px] tracking-widest lowercase border px-2 py-0.5 ${
+                    sem?.type === "active" ? "border-green-900 text-green-500" : "border-gray-800 text-gray-600"
+                  }`}>
+                    {sem?.type === "active" ? "◉ CURRENT" : sem?.type === "past" ? "PAST" : "UPCOMING"}
+                  </span>
+                </div>
+
+                {/* Course list */}
+                <div className="overflow-y-auto scrollbar-hide max-h-[50vh] pr-2 space-y-2">
+                  {courses.length === 0 ? (
+                    <p className="text-[10px] text-gray-700 tracking-widest py-4 text-center">no courses</p>
+                  ) : (
+                    courses.map((c) => (
+                      <div
+                        key={c.id}
+                        className="border border-gray-800 rounded-lg p-4 bg-gray-900/40 flex flex-col gap-2"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[11px] text-white tracking-[0.2em] font-medium">{c.course_id}</span>
+                            <p className="text-[10px] text-gray-500 mt-0.5 truncate">{c.title}</p>
+                            <p className="text-[10px] text-gray-500 mt-0.5 truncate">{c.credits} credits</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Link
+                              href={`/classes/${encodeURIComponent(c.course_id)}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[11px] text-gray-600 hover:text-green-500 transition-colors"
+                            >
+                              i
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleRemove(c.id); }}
+                              disabled={isPending}
+                              className="text-[11px] text-gray-600 hover:text-red-400 transition-colors"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-3 text-[9px] text-gray-600">
+                          {c.grade && (
+                            <span className="tracking-wider">Grade: <span className="text-green-500 font-medium">{c.grade}</span></span>
+                          )}
+                          {professorByCourse[c.course_id] && (
+                            <span className="tracking-wider">Professor: {professorByCourse[c.course_id]}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <button
+                  onClick={closeSemesterModal}
+                  className="mt-6 w-full text-[9px] text-gray-700 hover:text-gray-400 tracking-widest transition-colors text-center"
+                >
+                  exit
+                </button>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
+
       {/* ── SEMESTER SECTIONS ─────────────────────────────────────────────── */}
       <div className="flex flex-col gap-20 pb-32 w-full max-w-5xl mx-auto">
         {groupedSemesters.map(([acYear, yearSems]) => (
@@ -427,6 +582,7 @@ export default function PlanningClient({ semesters, coursesBySemester }: Props) 
                   key={sem.name}
                   sem={sem}
                   courses={coursesBySemester[sem.name] ?? []}
+                  onExpand={() => setExpandedSemester(sem.name)}
                   onRemove={handleRemove}
                   isPending={isPending}
                 />

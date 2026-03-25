@@ -62,7 +62,7 @@ export default function ExploreClient({ currentUserId }: { currentUserId: string
           onClick={() => setIsSearching(true)}
           className="w-full bg-gray-950/40 border border-gray-900 p-6 text-center text-gray-600 text-[11px] tracking-[0.5em] hover:text-white hover:border-gray-500 transition-all uppercase"
         >
-          [ INITIATE_SCAN ]
+          Search Users
         </button>
       </div>
 
@@ -89,7 +89,7 @@ export default function ExploreClient({ currentUserId }: { currentUserId: string
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === "Escape" && closeSearch()}
                 className="w-full bg-transparent border-b border-gray-800 text-2xl py-4 outline-none focus:border-green-500 uppercase font-bold text-white mb-6 tracking-[0.2em]"
-                placeholder="NODE_ID_ENTRY"
+                placeholder="search users"
                 autoComplete="off"
               />
 
@@ -98,7 +98,7 @@ export default function ExploreClient({ currentUserId }: { currentUserId: string
                 <div className="space-y-1">
                   {results.length === 0 ? (
                     <div className="p-4 text-[10px] text-gray-700 tracking-widest uppercase text-center">
-                      No_Nodes_Found
+                      No users found
                     </div>
                   ) : (
                     results.map((u) => (
@@ -129,9 +129,9 @@ export default function ExploreClient({ currentUserId }: { currentUserId: string
               {/* Abort */}
               <button
                 onClick={closeSearch}
-                className="mt-6 w-full text-[9px] text-gray-700 hover:text-gray-400 uppercase tracking-widest transition-colors text-center"
+                className="mt-6 w-full text-[9px] text-gray-700 hover:text-gray-400 tracking-widest transition-colors text-center"
               >
-                [ ABORT ]
+                exit
               </button>
             </motion.div>
           </div>
