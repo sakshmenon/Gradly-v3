@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { getSemesterOffsetFromStart, type SemesterTerm } from "@/lib/utils/planning";
 import { computeNextCoopSequence } from "@/lib/utils/coop";
+import { isCoopCatalogCourseId } from "@/lib/utils/coopPlacement";
 import { addCourseToSemester, removeCourseFromSemester, setSemesterCoopMode } from "./actions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -291,7 +292,11 @@ export default function PlanningClient({
         (r) => r.class_kind === "coop" && r.coop_sequence === nextSeq
       );
     }
-    return results.filter((r) => (r.class_kind ?? "study") !== "coop");
+    return results.filter((r) => {
+      if ((r.class_kind ?? "study") === "coop") return false;
+      if (isCoopCatalogCourseId(r.course_id)) return false;
+      return true;
+    });
   }, [results, targetSemName, orderedSemesterNames, coursesBySemester, coopModeBySemester]);
 
   function toggleSelected(courseId: string) {

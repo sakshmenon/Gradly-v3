@@ -3,12 +3,14 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { generateSemesterRange, getCurrentSemesterName } from "@/lib/utils/planning";
 import type { PlannerCourse } from "@/lib/utils/pathfinder";
+import { getNextCoopSequenceForTermYear } from "../actions";
+import { isCoopCatalogCourseId } from "@/lib/utils/coopPlacement";
 import RecommendClient from "./RecommendClient";
 
 type RawReqRow = {
   course_id:      string | null;
   credits_needed: number | null;
-  classes:        { title: string; credits: number } | null;
+  classes:        { title: string; credits: number; class_kind?: string } | null;
 };
 
 export default async function RecommendPage() {
@@ -83,7 +85,7 @@ export default async function RecommendPage() {
   // ── Degree requirements ───────────────────────────────────────────────────
   const { data: reqRows } = await supabase
     .from("degree_requirements")
-    .select("course_id, credits_needed, classes(title, credits)")
+    .select("course_id, credits_needed, classes(title, credits, class_kind)")
     .eq("major", major)
     .not("course_id", "is", null);
 
@@ -97,21 +99,47 @@ export default async function RecommendPage() {
 
   // ── Queue = required − placed ─────────────────────────────────────────────
   const initialQueue: PlannerCourse[] = ((reqRows ?? []) as unknown as RawReqRow[])
-    .filter((r) => r.course_id !== null && !placedIds.has(r.course_id))
+    .filter((r) => {
+      if (r.course_id === null || placedIds.has(r.course_id)) return false;
+      if (r.classes?.class_kind === "coop") return false;
+      if (isCoopCatalogCourseId(r.course_id)) return false;
+      return true;
+    })
     .map((r) => ({
       course_id: r.course_id!,
       title:     r.classes?.title     ?? r.course_id!,
       credits:   r.classes?.credits   ?? r.credits_needed ?? 3,
     }));
 
-  return (
-    <RecommendClient
-      semesters={allSemesters.map((s) => ({
+  const { data: coopModeRows } = await supabase
+    .from("user_semester_modes")
+    .select("semester, year")
+    .eq("user_id", user.id)
+    .eq("is_coop", true);
+
+  const coopSemesterNames = new Set(
+    (coopModeRows ?? []).map((r) => `${r.semester} ${r.year}`)
+  );
+
+  const semesters = await Promise.all(
+    allSemesters.map(async (s) => {
+      const name = s.name;
+      const isCoop = coopSemesterNames.has(name);
+      const nextCoopSeq = await getNextCoopSequenceForTermYear(s.term, s.year);
+      return {
         semester: s.term,
         year:     s.year,
-        name:     s.name,
+        name,
         type:     s.type as "active" | "upcoming",
-      }))}
+        isCoop,
+        nextCoopSeq,
+      };
+    })
+  );
+
+  return (
+    <RecommendClient
+      semesters={semesters}
       initialQueue={initialQueue}
     />
   );

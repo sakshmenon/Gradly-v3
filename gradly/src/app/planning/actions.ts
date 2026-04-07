@@ -7,12 +7,19 @@ import {
   getSemesterOffsetFromStart,
   type SemesterTerm,
 } from "@/lib/utils/planning";
+import { isCoopCatalogCourseId } from "@/lib/utils/coopPlacement";
 
 type ClassRow = {
   course_id: string;
   class_kind: string;
   coop_sequence: number | null;
 };
+
+/** Co-op work-term rows: class_kind, or catalog ids starting with COOP (must not go on study terms). */
+function isCoopCatalogCourse(classRow: ClassRow): boolean {
+  if (classRow.class_kind === "coop") return true;
+  return isCoopCatalogCourseId(classRow.course_id);
+}
 
 /** Labels for errors — always from `classes`, never hardcoded course IDs. */
 async function describeExpectedCoopFromCatalog(
@@ -32,7 +39,7 @@ async function describeExpectedCoopFromCatalog(
   return `Add ${data.course_id} — ${data.title} (catalog sequence ${nextSeq}).`;
 }
 
-async function getNextCoopSequenceForSemester(
+export async function getNextCoopSequenceForSemester(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   term: string,
@@ -42,26 +49,38 @@ async function getNextCoopSequenceForSemester(
 
   const { data: rows } = await supabase
     .from("user_courses")
-    .select("semester, year, classes(class_kind, coop_sequence)")
+    .select("semester, year, course_id, classes(class_kind, coop_sequence)")
     .eq("user_id", userId);
 
   let maxSeq = 0;
   for (const row of rows ?? []) {
     const cls = row.classes as { class_kind?: string | null; coop_sequence?: number | null } | null;
-    if (!cls || cls.class_kind !== "coop" || cls.coop_sequence == null) continue;
+    const cid = row.course_id as string;
+    const isCoopRow =
+      cls?.class_kind === "coop" || isCoopCatalogCourseId(cid);
+    if (!isCoopRow || cls?.coop_sequence == null) continue;
     const rIdx = getSemesterChronologicalIndex(row.semester as SemesterTerm, row.year);
     if (rIdx < targetIdx) maxSeq = Math.max(maxSeq, cls.coop_sequence);
   }
   return maxSeq + 1;
 }
 
-export async function addCourseToSemester(
+/** Next co-op sequence (1-based) required for this term/year — for UI / auto-scheduler. */
+export async function getNextCoopSequenceForTermYear(term: string, year: number): Promise<number> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return 1;
+  return getNextCoopSequenceForSemester(supabase, user.id, term, year);
+}
+
+/**
+ * Shared placement rules (co-op vs study). Used by planner inserts and auto-scheduler approve.
+ */
+export async function validateCoursePlacementForSemester(
   courseId: string,
   term: string,
-  year: number,
-  status: "completed" | "in_progress" | "planned",
-  grade?: string
-) {
+  year: number
+): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -95,10 +114,10 @@ export async function addCourseToSemester(
   const rowsInSem = inSem ?? [];
 
   if (isCoopSemester) {
-    if (classRow.class_kind !== "coop") {
+    if (!isCoopCatalogCourse(classRow)) {
       return {
         error:
-          "Co-op semesters only allow courses from the catalog with class_kind = 'coop'.",
+          "Co-op semesters only allow co-op work-term courses from the catalog (class_kind = 'coop').",
       };
     }
     if (rowsInSem.length >= 1) {
@@ -112,13 +131,31 @@ export async function addCourseToSemester(
       };
     }
   } else {
-    if (classRow.class_kind === "coop") {
+    // Study semester: never schedule co-op catalog courses (class_kind or COOP* id).
+    if (isCoopCatalogCourse(classRow)) {
       return {
         error:
-          "This course is a co-op catalog offering; mark the semester as co-op or choose a study course.",
+          "Study semesters cannot include co-op work courses. Mark this term as a co-op semester on the planner, then place the next COOP catalog course there.",
       };
     }
   }
+
+  return {};
+}
+
+export async function addCourseToSemester(
+  courseId: string,
+  term: string,
+  year: number,
+  status: "completed" | "in_progress" | "planned",
+  grade?: string
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const validation = await validateCoursePlacementForSemester(courseId, term, year);
+  if (validation.error) return { error: validation.error };
 
   const { error } = await supabase.from("user_courses").insert({
     user_id:   user.id,
@@ -152,20 +189,24 @@ export async function setSemesterCoopMode(
 
   const { data: rows } = await supabase
     .from("user_courses")
-    .select("id, classes(class_kind)")
+    .select("id, course_id, classes(class_kind)")
     .eq("user_id", user.id)
     .eq("semester", term)
     .eq("year", year);
 
   const placed = rows ?? [];
 
+  function rowIsCoopCatalog(r: (typeof placed)[0]): boolean {
+    const kind = (r.classes as { class_kind?: string } | null)?.class_kind;
+    return kind === "coop" || isCoopCatalogCourseId(r.course_id as string);
+  }
+
   if (isCoop) {
     if (placed.length > 1) {
       return { error: "Remove extra courses so at most one remains before marking this semester as co-op." };
     }
     if (placed.length === 1) {
-      const kind = (placed[0].classes as { class_kind?: string } | null)?.class_kind;
-      if (kind !== "coop") {
+      if (!rowIsCoopCatalog(placed[0])) {
         return { error: "Remove non–co-op courses from this semester before marking it as co-op." };
       }
     }
@@ -181,8 +222,7 @@ export async function setSemesterCoopMode(
     if (error) return { error: error.message };
   } else {
     for (const r of placed) {
-      const kind = (r.classes as { class_kind?: string } | null)?.class_kind;
-      if (kind === "coop") {
+      if (rowIsCoopCatalog(r)) {
         return { error: "Remove the co-op course from this semester before turning off co-op mode." };
       }
     }
