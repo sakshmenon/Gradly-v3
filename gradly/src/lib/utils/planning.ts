@@ -50,6 +50,24 @@ function semIdx(term: SemesterTerm, year: number): number {
   return year * 3 + TERM_ORDER[term];
 }
 
+/** Chronological index for a term/year (Spring/Summer/Fall ordering within each calendar year). */
+export function getSemesterChronologicalIndex(term: SemesterTerm, year: number): number {
+  return semIdx(term, year);
+}
+
+/**
+ * Zero-based offset of a semester from the student's `starting_semester`
+ * (first semester = 0). Used for co-op rules (e.g. first two cannot be co-op).
+ */
+export function getSemesterOffsetFromStart(
+  startingSemester: string,
+  term: SemesterTerm,
+  year: number
+): number {
+  const start = parseSemester(startingSemester);
+  return semIdx(term, year) - semIdx(start.term as SemesterTerm, start.year);
+}
+
 export function compareSemesters(a: string, b: string): number {
   const pa = parseSemester(a);
   const pb = parseSemester(b);

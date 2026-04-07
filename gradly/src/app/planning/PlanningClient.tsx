@@ -2,9 +2,12 @@
 
 import { useState, useEffect, useTransition, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
-import { addCourseToSemester, removeCourseFromSemester } from "./actions";
+import { getSemesterOffsetFromStart, type SemesterTerm } from "@/lib/utils/planning";
+import { computeNextCoopSequence } from "@/lib/utils/coop";
+import { addCourseToSemester, removeCourseFromSemester, setSemesterCoopMode } from "./actions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,6 +25,8 @@ export type CourseEntry = {
   credits: number;
   status: string;
   grade?: string | null;
+  class_kind?: string;
+  coop_sequence?: number | null;
 };
 
 type ClassResult = {
@@ -29,6 +34,8 @@ type ClassResult = {
   title: string;
   credits: number;
   subject: string;
+  class_kind?: string;
+  coop_sequence?: number | null;
 };
 
 const SEMESTER_CARD_PREVIEW_LIMIT = 3;
@@ -37,6 +44,8 @@ type Props = {
   currentUserId: string;
   semesters: SemesterSection[];
   coursesBySemester: Record<string, CourseEntry[]>;
+  coopModeBySemester: Record<string, boolean>;
+  startingSemester: string;
 };
 
 const GRADE_OPTIONS = [
@@ -53,12 +62,14 @@ function SemCard({
   onExpand,
   onRemove,
   isPending,
+  isCoopMode,
 }: {
   sem: SemesterSection;
   courses: CourseEntry[];
   onExpand: () => void;
   onRemove: (id: string) => void;
   isPending: boolean;
+  isCoopMode: boolean;
 }) {
   const isEmpty    = courses.length === 0;
   const isActive   = sem.type === "active";
@@ -93,6 +104,11 @@ function SemCard({
           {sem.term}
         </span>
         <div className="flex items-center gap-2">
+          {isCoopMode && (
+            <span className="text-[8px] text-amber-500/90 tracking-widest uppercase border border-amber-900/50 px-1.5 py-0.5 rounded">
+              co-op
+            </span>
+          )}
           {isActive   && <span className="text-[8px] text-green-500 tracking-widest uppercase animate-pulse">◉ LIVE</span>}
           {isPastEmpty && <span className="text-[8px] text-red-500/60  tracking-widest uppercase">⚠ EMPTY</span>}
           {totalCr > 0 && <span className="text-[9px] text-gray-700 tracking-widest">{totalCr}cr</span>}
@@ -148,7 +164,14 @@ function SemCard({
 
 const SEARCH_RESULT_LIMIT = 100;
 
-export default function PlanningClient({ currentUserId, semesters, coursesBySemester }: Props) {
+export default function PlanningClient({
+  currentUserId,
+  semesters,
+  coursesBySemester,
+  coopModeBySemester,
+  startingSemester,
+}: Props) {
+  const router = useRouter();
   const [isSearchModalOpen,    setIsSearchModalOpen]    = useState(false);
   const [expandedSemester,    setExpandedSemester]     = useState<string | null>(null);
   const [professorByCourse,   setProfessorByCourse]     = useState<Record<string, string>>({});
@@ -158,6 +181,7 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
   const [targetSemName,       setTargetSemName]        = useState<string>(semesters[0]?.name ?? "");
   const [grade,               setGrade]                = useState<string>("");
   const [feedback,            setFeedback]             = useState<string | null>(null);
+  const [coopToggleFeedback,  setCoopToggleFeedback]   = useState<string | null>(null);
   const [isPending,           startTransition]         = useTransition();
 
   useEffect(() => { setGrade(""); }, [selectedCourseId]);
@@ -173,6 +197,7 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
   function closeSemesterModal() {
     setExpandedSemester(null);
     setProfessorByCourse({});
+    setCoopToggleFeedback(null);
   }
 
   // Close semester modal on Escape
@@ -225,7 +250,7 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
       const sb = createClient();
       const { data } = await sb
         .from("classes")
-        .select("course_id, title, credits, subject")
+        .select("course_id, title, credits, subject, class_kind, coop_sequence")
         .or(`course_id.ilike.%${trimmed}%,title.ilike.%${trimmed}%`)
         .order("course_id")
         .limit(SEARCH_RESULT_LIMIT);
@@ -251,6 +276,24 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
     return YEAR_LABELS[offset] ?? `Year ${offset + 1}`;
   }
 
+  const orderedSemesterNames = useMemo(() => semesters.map((s) => s.name), [semesters]);
+
+  const displaySearchResults = useMemo(() => {
+    if (results === null) return null;
+    const isCoopSem = coopModeBySemester[targetSemName] ?? false;
+    const nextSeq = computeNextCoopSequence({
+      orderedSemesterNames,
+      coursesBySemester,
+      targetSemesterName: targetSemName,
+    });
+    if (isCoopSem) {
+      return results.filter(
+        (r) => r.class_kind === "coop" && r.coop_sequence === nextSeq
+      );
+    }
+    return results.filter((r) => (r.class_kind ?? "study") !== "coop");
+  }, [results, targetSemName, orderedSemesterNames, coursesBySemester, coopModeBySemester]);
+
   function toggleSelected(courseId: string) {
     setSelectedCourseId((prev) => (prev === courseId ? null : courseId));
     setFeedback(null);
@@ -269,7 +312,10 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
         sem.type === "past" ? grade : undefined,
       );
       setFeedback(result.error ? `Error: ${result.error}` : `Added to ${sem.name}.`);
-      if (!result.error) setSelectedCourseId(null);
+      if (!result.error) {
+        setSelectedCourseId(null);
+        router.refresh();
+      }
     });
   }
 
@@ -277,6 +323,19 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
     startTransition(async () => {
       const result = await removeCourseFromSemester(userCourseId);
       if (result.error) setFeedback(`Error: ${result.error}`);
+      else router.refresh();
+    });
+  }
+
+  function handleCoopToggle(sem: SemesterSection, next: boolean) {
+    setCoopToggleFeedback(null);
+    startTransition(async () => {
+      const result = await setSemesterCoopMode(sem.term, sem.year, next, startingSemester);
+      if ("error" in result && result.error) setCoopToggleFeedback(result.error);
+      else {
+        setCoopToggleFeedback(null);
+        router.refresh();
+      }
     });
   }
 
@@ -343,15 +402,19 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
               />
 
               {/* Results */}
-              {results !== null && (
+              {displaySearchResults !== null && (
                 <div className="space-y-1 overflow-y-auto scrollbar-hide max-h-[50vh] pr-2">
-                  {results.length === 0 ? (
-                    <div className="p-4 text-[10px] text-gray tracking-widest text-center">
-                      No results found
+                  {displaySearchResults.length === 0 ? (
+                    <div className="p-4 text-[10px] text-gray-500 tracking-widest text-center leading-relaxed">
+                      {results?.length === 0
+                        ? "No results found"
+                        : (coopModeBySemester[targetSemName]
+                            ? "No catalog course matches this co-op semester (only the next co-op sequence is shown)."
+                            : "No matching courses (catalog co-op offerings must use a semester marked co-op).")}
                     </div>
                   ) : (
                     <div>
-                      {results.map((cls) => {
+                      {displaySearchResults.map((cls) => {
                         const alreadyIn  = addedCourses[cls.course_id];
                         const isSelected = selectedCourseId === cls.course_id;
                         return (
@@ -462,6 +525,12 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
                 </div>
               )}
 
+              {results !== null && (coopModeBySemester[targetSemName] ?? false) && displaySearchResults && displaySearchResults.length > 0 && (
+                <p className="text-[9px] text-amber-600/90 tracking-widest mt-2 mb-1">
+                  Co-op semester: only the next catalog co-op (by sequence) is listed.
+                </p>
+              )}
+
               {/* Exit */}
               <button
                 onClick={closeSearchModal}
@@ -509,6 +578,57 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
                     {sem?.type === "active" ? "◉ CURRENT" : sem?.type === "past" ? "PAST" : "UPCOMING"}
                   </span>
                 </div>
+
+                {sem && (() => {
+                  const coopEligible = getSemesterOffsetFromStart(
+                    startingSemester,
+                    sem.term as SemesterTerm,
+                    sem.year
+                  ) >= 2;
+                  const isCoop = coopModeBySemester[sem.name] ?? false;
+                  return (
+                    <div className="mb-6 flex flex-col gap-3 border border-gray-800/80 rounded-lg p-4 bg-gray-900/30">
+                      <p className="text-[9px] text-gray-500 tracking-wider leading-relaxed">
+                        <span className="text-gray-400">Semester type:</span>{" "}
+                        {isCoop ? (
+                          <span className="text-amber-500/90">Co-op work term</span>
+                        ) : (
+                          <span className="text-gray-400">Study — default</span>
+                        )}
+                      </p>
+                      <div className="flex items-center justify-between gap-4 min-h-[2rem]">
+                        <span className="text-[10px] text-gray-400 tracking-widest uppercase leading-none">
+                          Co-op work term
+                        </span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={isCoop}
+                          aria-label={isCoop ? "Co-op semester on" : "Co-op semester off"}
+                          disabled={isPending || (!coopEligible && !isCoop)}
+                          onClick={() => handleCoopToggle(sem, !isCoop)}
+                          className={[
+                            "inline-flex h-8 w-14 shrink-0 items-center rounded-full p-1 transition-colors",
+                            isCoop ? "bg-amber-600/80 justify-end" : "bg-gray-800 justify-start",
+                            isPending || (!coopEligible && !isCoop) ? "opacity-40 cursor-not-allowed" : "hover:opacity-90",
+                          ].join(" ")}
+                        >
+                          <span className="pointer-events-none block h-6 w-6 rounded-full bg-white shadow-sm ring-1 ring-black/10" />
+                        </button>
+                      </div>
+                      {!coopEligible && !isCoop && (
+                        <p className="text-[9px] text-gray-600 tracking-wider">
+                          The first two semesters in your plan cannot be co-op semesters.
+                        </p>
+                      )}
+                      {coopToggleFeedback && (
+                        <p className="text-[9px] tracking-wider text-red-400">
+                          {coopToggleFeedback}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Course list */}
                 <div className="overflow-y-auto scrollbar-hide max-h-[50vh] pr-2 space-y-2">
@@ -585,6 +705,7 @@ export default function PlanningClient({ currentUserId, semesters, coursesBySeme
                   onExpand={() => setExpandedSemester(sem.name)}
                   onRemove={handleRemove}
                   isPending={isPending}
+                  isCoopMode={coopModeBySemester[sem.name] ?? false}
                 />
               ))}
             </div>

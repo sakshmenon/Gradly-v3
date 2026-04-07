@@ -10,7 +10,13 @@ type RawCourseRow = {
   year: number;
   status: string;
   grade: string | null;
-  classes: { course_id: string; title: string; credits: number } | null;
+  classes: {
+    course_id: string;
+    title: string;
+    credits: number;
+    class_kind?: string;
+    coop_sequence?: number | null;
+  } | null;
 };
 
 export default async function PlanningPage() {
@@ -59,8 +65,19 @@ export default async function PlanningPage() {
   // ── Fetch placed courses ──────────────────────────────────────────────────
   const { data: rawCourses } = await supabase
     .from("user_courses")
-    .select("id, semester, year, status, grade, classes(course_id, title, credits)")
+    .select("id, semester, year, status, grade, classes(course_id, title, credits, class_kind, coop_sequence)")
     .eq("user_id", user.id);
+
+  const { data: coopModes } = await supabase
+    .from("user_semester_modes")
+    .select("semester, year")
+    .eq("user_id", user.id)
+    .eq("is_coop", true);
+
+  const coopModeBySemester: Record<string, boolean> = {};
+  for (const m of coopModes ?? []) {
+    coopModeBySemester[`${m.semester} ${m.year}`] = true;
+  }
 
   const coursesBySemester: Record<string, CourseEntry[]> = {};
   for (const row of (rawCourses ?? []) as unknown as RawCourseRow[]) {
@@ -74,6 +91,8 @@ export default async function PlanningPage() {
       credits:   row.classes.credits,
       status:    row.status,
       grade:     row.grade,
+      class_kind: row.classes.class_kind,
+      coop_sequence: row.classes.coop_sequence ?? null,
     });
   }
 
@@ -82,6 +101,8 @@ export default async function PlanningPage() {
       currentUserId={user.id}
       semesters={semesters}
       coursesBySemester={coursesBySemester}
+      coopModeBySemester={coopModeBySemester}
+      startingSemester={starting_semester}
     />
   );
 }

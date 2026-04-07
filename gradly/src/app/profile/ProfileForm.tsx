@@ -5,7 +5,7 @@ import Link from "next/link";
 import { updateProfile, sendPasswordResetEmail } from "./actions";
 import { AVAILABLE_MAJORS } from "@/lib/utils/planning";
 
-type ProfileData = {x
+type ProfileData = {
   display_name:        string | null;
   email:               string;
   major:               string | null;
@@ -84,15 +84,17 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-6 h-full"
-    >
+    <div className="flex flex-col gap-6 h-full min-h-0">
+      {/* Profile fields + save — separate from sign-out form so <form> is not nested */}
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-col gap-6 flex-1 min-h-0"
+      >
       {/* ── Editable fields ─────────────────────────────────────────────── */}
       <div className="space-y-6 flex-1 overflow-y-auto scrollbar-hide pr-1">
         <Field label="Display_Name">
           <input
-            name="Name"
+            name="display_name"
             type="text"
             defaultValue={profile.display_name ?? ""}
             placeholder="UNDEFINED"
@@ -163,8 +165,8 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
         </Field>
       </div>
 
-      {/* ── Actions ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3 flex-shrink-0 pb-2">
+      {/* ── Save ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 flex-shrink-0">
         {saveMessage && (
           <p
             className={`text-[9px] tracking-widest uppercase ${
@@ -182,44 +184,46 @@ export default function ProfileForm({ profile }: { profile: ProfileData }) {
         >
           {isSavePending ? "SAVING..." : "SAVE_PARAMETERS"}
         </button>
-
-        <div className="flex flex-col gap-2 border-t border-gray-900 pt-3">
-          <button
-            type="button"
-            onClick={handlePasswordReset}
-            disabled={isPwPending}
-            className="text-[9px] text-gray-600 uppercase tracking-widest hover:text-gray-400 transition-colors text-left"
-          >
-            {isPwPending ? "Sending..." : "Reset_Password →"}
-          </button>
-
-          {pwMessage && (
-            <p
-              className={`text-[9px] tracking-widest uppercase ${
-                pwMessage.startsWith("Error") ? "text-red-400" : "text-green-400"
-              }`}
-            >
-              {pwMessage}
-            </p>
-          )}
-
-          <Link
-            href="/planning"
-            className="text-[9px] text-gray-600 uppercase tracking-widest hover:text-gray-400 transition-colors"
-          >
-            Manage_Classes →
-          </Link>
-
-          <form action="/auth/signout" method="post" className="mt-1">
-            <button
-              type="submit"
-              className="text-[9px] text-gray-700 uppercase tracking-widest hover:text-red-400 transition-colors"
-            >
-              [ Sign_Out ]
-            </button>
-          </form>
-        </div>
       </div>
-    </form>
+      </form>
+
+      {/* ── Account actions (sibling forms — not nested) ─────────────────── */}
+      <div className="flex flex-col gap-2 border-t border-gray-900 pt-3 flex-shrink-0 pb-2">
+        <button
+          type="button"
+          onClick={handlePasswordReset}
+          disabled={isPwPending}
+          className="text-[9px] text-gray-600 uppercase tracking-widest hover:text-gray-400 transition-colors text-left"
+        >
+          {isPwPending ? "Sending..." : "Reset_Password →"}
+        </button>
+
+        {pwMessage && (
+          <p
+            className={`text-[9px] tracking-widest uppercase ${
+              pwMessage.startsWith("Error") ? "text-red-400" : "text-green-400"
+            }`}
+          >
+            {pwMessage}
+          </p>
+        )}
+
+        <Link
+          href="/planning"
+          className="text-[9px] text-gray-600 uppercase tracking-widest hover:text-gray-400 transition-colors"
+        >
+          Manage_Classes →
+        </Link>
+
+        <form action="/auth/signout" method="post" className="mt-1">
+          <button
+            type="submit"
+            className="text-[9px] text-gray-700 uppercase tracking-widest hover:text-red-400 transition-colors"
+          >
+            [ Sign_Out ]
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
