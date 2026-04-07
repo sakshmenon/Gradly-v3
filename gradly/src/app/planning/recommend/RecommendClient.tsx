@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition, useMemo } from "react";
+import { useState, useEffect, useTransition, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,6 +17,10 @@ import {
   isCoopCatalogCourseId,
 } from "@/lib/utils/coopPlacement";
 import { approveSemester } from "./actions";
+import { isDemoActive, recordDemoMutation } from "@/lib/demo/store";
+import { DEMO_PENDING_RECOMMEND_KEY } from "@/lib/demo/config";
+
+const demoSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -62,6 +66,91 @@ export default function RecommendClient({ semesters, initialQueue }: Props) {
   useEffect(() => {
     setQueue(initialQueue);
   }, [initialQueue]);
+
+  const queueRef = useRef(queue);
+  const semIdxRef = useRef(semIdx);
+  const semestersRef = useRef(semesters);
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+  useEffect(() => {
+    semIdxRef.current = semIdx;
+  }, [semIdx]);
+  useEffect(() => {
+    semestersRef.current = semesters;
+  }, [semesters]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isDemoActive()) return;
+    if (sessionStorage.getItem(DEMO_PENDING_RECOMMEND_KEY) !== "1") return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      sessionStorage.removeItem(DEMO_PENDING_RECOMMEND_KEY);
+
+      async function runRecommendDemo() {
+        if (!isDemoActive()) {
+          window.dispatchEvent(new Event("gradly-demo-recommend-done"));
+          return;
+        }
+        const sems = semestersRef.current;
+        const idx = semIdxRef.current;
+        const q = queueRef.current;
+        const sem = sems[idx];
+        if (!sem || sem.isCoop) {
+          window.dispatchEvent(new Event("gradly-demo-recommend-done"));
+          return;
+        }
+
+        setMode(1);
+        // Stay on configure: audience sees Mode 1 selected, queue, and PATHFIND.
+        await demoSleep(3200);
+        const { studyQueue, coopCatalogOnly } =
+          partitionPlannerCoursesForStudyScheduling(q);
+        const { scheduled, remaining } = runPathfinder(studyQueue, 1);
+        setSemCourses(scheduled);
+        setQueue([...remaining, ...coopCatalogOnly]);
+        setStep("review");
+        // Stay on review: audience sees the semester’s picked courses before approve.
+        await demoSleep(6500);
+
+        if (scheduled.length === 0) {
+          router.push("/planning");
+          window.dispatchEvent(new Event("gradly-demo-recommend-done"));
+          return;
+        }
+
+        const status = sem.type === "active" ? "in_progress" : "planned";
+        const result = await approveSemester(
+          scheduled,
+          sem.semester,
+          sem.year,
+          status
+        );
+        if (!result.error) {
+          recordDemoMutation({
+            kind: "courses",
+            term: sem.semester,
+            year: sem.year,
+            courseIds: scheduled.map((c) => c.course_id),
+          });
+        }
+        router.push("/planning");
+        router.refresh();
+        await demoSleep(350);
+        window.dispatchEvent(new Event("gradly-demo-recommend-done"));
+      }
+
+      void runRecommendDemo();
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [router]);
 
   const sem        = semesters[semIdx];
   const isLastSem  = semIdx >= semesters.length - 1;

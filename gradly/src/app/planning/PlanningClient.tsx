@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition, useMemo } from "react";
+import { useState, useEffect, useTransition, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,6 +9,14 @@ import { getSemesterOffsetFromStart, type SemesterTerm } from "@/lib/utils/plann
 import { computeNextCoopSequence } from "@/lib/utils/coop";
 import { isCoopCatalogCourseId } from "@/lib/utils/coopPlacement";
 import { addCourseToSemester, removeCourseFromSemester, setSemesterCoopMode } from "./actions";
+import {
+  DEMO_CLASS_SEARCH,
+  DEMO_MANUAL_ADD_TERM,
+  DEMO_MANUAL_ADD_YEAR,
+} from "@/lib/demo/config";
+import { isDemoActive, recordDemoMutation } from "@/lib/demo/store";
+
+const demoSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -298,6 +306,83 @@ export default function PlanningClient({
       return true;
     });
   }, [results, targetSemName, orderedSemesterNames, coursesBySemester, coopModeBySemester]);
+
+  const displaySearchRef = useRef<ClassResult[] | null>(null);
+  useEffect(() => {
+    displaySearchRef.current = displaySearchResults;
+  }, [displaySearchResults]);
+
+  // Presentation demo: open search, surface CS results, add first eligible course to an open term
+  useEffect(() => {
+    async function runPlanningDemo() {
+      if (!isDemoActive()) return;
+      const target = semesters.find(
+        (s) => s.term === DEMO_MANUAL_ADD_TERM && s.year === DEMO_MANUAL_ADD_YEAR
+      );
+      if (!target) {
+        window.dispatchEvent(new Event("gradly-demo-planning-done"));
+        return;
+      }
+
+      setIsSearchModalOpen(true);
+      setTargetSemName(target.name);
+      await demoSleep(450);
+      setQuery(DEMO_CLASS_SEARCH);
+      await demoSleep(1000);
+
+      const list = displaySearchRef.current ?? [];
+      const pick = list.find((cls) => {
+        if (addedCourses[cls.course_id]) return false;
+        if ((cls.class_kind ?? "study") === "coop") return false;
+        if (isCoopCatalogCourseId(cls.course_id)) return false;
+        return true;
+      });
+
+      if (!pick) {
+        closeSearchModal();
+        window.dispatchEvent(new Event("gradly-demo-planning-done"));
+        return;
+      }
+
+      setSelectedCourseId(pick.course_id);
+      await demoSleep(500);
+
+      const status =
+        target.type === "past"
+          ? "completed"
+          : target.type === "active"
+            ? "in_progress"
+            : "planned";
+
+      startTransition(async () => {
+        const result = await addCourseToSemester(
+          pick.course_id,
+          target.term,
+          target.year,
+          status,
+          target.type === "past" ? grade || undefined : undefined
+        );
+        if (!result.error) {
+          recordDemoMutation({
+            kind: "courses",
+            term: target.term,
+            year: target.year,
+            courseIds: [pick.course_id],
+          });
+        }
+        closeSearchModal();
+        router.refresh();
+        await demoSleep(400);
+        window.dispatchEvent(new Event("gradly-demo-planning-done"));
+      });
+    }
+
+    function onDemoPlanning() {
+      void runPlanningDemo();
+    }
+    window.addEventListener("gradly-demo-planning-add", onDemoPlanning);
+    return () => window.removeEventListener("gradly-demo-planning-add", onDemoPlanning);
+  }, [semesters, addedCourses, router, startTransition, grade]);
 
   function toggleSelected(courseId: string) {
     setSelectedCourseId((prev) => (prev === courseId ? null : courseId));

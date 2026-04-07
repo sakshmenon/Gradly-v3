@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import DemoOrchestrator from "@/components/DemoOrchestrator";
 
 const NAV = [
   { label: "dashboard", href: "/",         match: (p: string) => p === "/" },
@@ -13,6 +16,26 @@ const NAV = [
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAuthPage = pathname === "/login" || pathname.startsWith("/auth/");
+  const [demoMotion, setDemoMotion] = useState(false);
+
+  useEffect(() => {
+    const sync = () => {
+      try {
+        setDemoMotion(sessionStorage.getItem("gradly_demo") === "1");
+      } catch {
+        setDemoMotion(false);
+      }
+    };
+    sync();
+    window.addEventListener("gradly-demo-started", sync);
+    window.addEventListener("gradly-demo-ended", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("gradly-demo-started", sync);
+      window.removeEventListener("gradly-demo-ended", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden relative">
@@ -47,10 +70,27 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         </aside>
       )}
 
-      {/* Page content */}
+      {/* Page content — animated section transitions during presentation demo */}
       <main className="relative z-20 flex-1 h-full overflow-hidden">
-        {children}
+        {demoMotion && !isAuthPage ? (
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              className="h-full w-full overflow-hidden"
+              initial={{ opacity: 0, x: 28 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -22 }}
+              transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
+        ) : (
+          children
+        )}
       </main>
+
+      <DemoOrchestrator />
     </div>
   );
 }

@@ -7,6 +7,8 @@ import {
   type Semester,
 } from "@/lib/utils/planning";
 import CopySemesterButton from "./CopySemesterButton";
+import DemoCopyFallback from "./DemoCopyFallback";
+import { DEMO_PEER_COPY_TERM, DEMO_PEER_COPY_YEAR } from "@/lib/demo/config";
 
 type RawCourseRow = {
   id: string;
@@ -153,6 +155,7 @@ export default async function UserSchedulePage({
 
   return (
     <div className="relative h-full w-full flex flex-col px-16 pt-16 overflow-y-auto scrollbar-hide">
+      <DemoCopyFallback />
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="flex justify-between items-start mb-20 flex-shrink-0">
@@ -238,6 +241,11 @@ export default async function UserSchedulePage({
                           <CopySemesterButton
                             sourceCourseIds={courseIds}
                             userSemesters={mySemesters}
+                            demoCopySource={
+                              sem.term === DEMO_PEER_COPY_TERM &&
+                              sem.year === DEMO_PEER_COPY_YEAR &&
+                              courses.length > 0
+                            }
                           />
                         </>
                       )}

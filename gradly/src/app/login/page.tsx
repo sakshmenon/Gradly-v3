@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { DEMO_DEFAULT_PASSWORD, DEMO_PRESENTER } from "@/lib/demo/config";
+import { setDemoActive } from "@/lib/demo/store";
 
 type Mode = "login" | "signup";
 
@@ -18,6 +20,8 @@ export default function LoginPage() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState<string | null>(null);
 
   const router   = useRouter();
   const supabase = createClient();
@@ -66,6 +70,23 @@ export default function LoginPage() {
     setLoading(false);
   }
 
+  async function handleGuidedDemo() {
+    setDemoLoading(true);
+    setDemoError(null);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: DEMO_PRESENTER.email,
+      password: DEMO_DEFAULT_PASSWORD,
+    });
+    if (error) {
+      setDemoError(error.message);
+      setDemoLoading(false);
+      return;
+    }
+    setDemoActive(true);
+    router.push("/");
+    setDemoLoading(false);
+  }
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen">
       {/* Hero */}
@@ -78,12 +99,28 @@ export default function LoginPage() {
 
         <div className="mt-16 flex flex-col items-center gap-4">
           {showBtn && (
-            <button
-              onClick={() => setShowAuth(true)}
-              className="w-48 py-3 rounded-full bg-white text-black font-bold hover:invert transition-all tracking-widest text-xs"
-            >
-              login
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setShowAuth(true)}
+                className="w-48 py-3 rounded-full bg-white text-black font-bold hover:invert transition-all tracking-widest text-xs"
+              >
+                login
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleGuidedDemo()}
+                disabled={demoLoading}
+                className="w-48 py-3 rounded-full border border-green-800/80 text-green-500/90 font-bold hover:bg-green-950/40 transition-all tracking-widest text-[10px] uppercase disabled:opacity-50"
+              >
+                {demoLoading ? "Starting…" : "Start guided demo"}
+              </button>
+              {demoError && (
+                <p className="text-red-400 text-[10px] tracking-wider text-center max-w-xs">
+                  {demoError}
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>

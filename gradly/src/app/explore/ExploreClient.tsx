@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { getYearInSchool } from "@/lib/utils/planning";
+import { DEMO_EXPLORE_SEARCH } from "@/lib/demo/config";
+import { isDemoActive } from "@/lib/demo/store";
+
+const demoSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type UserResult = {
   id: string;
@@ -18,6 +22,46 @@ export default function ExploreClient({ currentUserId }: { currentUserId: string
   const [query,       setQuery]       = useState("");
   const [results,     setResults]     = useState<UserResult[] | null>(null);
   const router = useRouter();
+  const currentUserIdRef = useRef(currentUserId);
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
+  useEffect(() => {
+    async function runExploreDemo() {
+      if (!isDemoActive()) return;
+      setIsSearching(true);
+      setQuery(DEMO_EXPLORE_SEARCH);
+      await demoSleep(900);
+      const sb = createClient();
+      const { data } = await sb
+        .from("users")
+        .select("id, display_name")
+        .ilike("display_name", `%${DEMO_EXPLORE_SEARCH}%`)
+        .neq("id", currentUserIdRef.current)
+        .limit(10);
+      const q = DEMO_EXPLORE_SEARCH.toLowerCase();
+      const peer =
+        data?.find((u) => (u.display_name ?? "").toLowerCase().includes(q)) ??
+        data?.[0];
+      if (peer?.id) {
+        window.dispatchEvent(
+          new CustomEvent("gradly-demo-explore-nav", {
+            detail: { peerId: peer.id },
+          })
+        );
+        await demoSleep(450);
+        router.push(`/explore/${peer.id}`);
+      }
+    }
+
+    function onExploreDemo() {
+      void runExploreDemo();
+    }
+    window.addEventListener("gradly-demo-explore-search", onExploreDemo);
+    return () =>
+      window.removeEventListener("gradly-demo-explore-search", onExploreDemo);
+  }, [router]);
 
   // Debounced user search
   useEffect(() => {

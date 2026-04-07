@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef, useCallback } from "react";
 import { connect, disconnect } from "../actions";
+import { getDemoPhase, isDemoActive, recordDemoMutation } from "@/lib/demo/store";
 
 type Props = {
   targetUserId: string;
@@ -11,11 +12,54 @@ type Props = {
 export default function ConnectButton({ targetUserId, initialState }: Props) {
   const [state,     setState]     = useState(initialState);
   const [isPending, startTransition] = useTransition();
+  /** Bumps when orchestrator sets demo phase “connect” so effects re-run (sessionStorage alone does not re-render). */
+  const [phaseConnectPulse, setPhaseConnectPulse] = useState(0);
+  const demoConnectNotified = useRef(false);
+
+  const notifyDemoConnect = useCallback(() => {
+    if (!isDemoActive() || demoConnectNotified.current) return;
+    demoConnectNotified.current = true;
+    recordDemoMutation({ kind: "follow", targetUserId });
+    window.dispatchEvent(new Event("gradly-demo-connected"));
+  }, [targetUserId]);
+
+  useEffect(() => {
+    function bump() {
+      setPhaseConnectPulse((n) => n + 1);
+    }
+    window.addEventListener("gradly-demo-phase-connect", bump);
+    return () => window.removeEventListener("gradly-demo-phase-connect", bump);
+  }, []);
+
+  // Already linked (e.g. re-run demo): still advance the guided flow.
+  useEffect(() => {
+    if (!isDemoActive() || getDemoPhase() !== "connect") return;
+    if (state !== "connected") return;
+    notifyDemoConnect();
+  }, [state, phaseConnectPulse, notifyDemoConnect]);
+
+  useEffect(() => {
+    if (!isDemoActive() || getDemoPhase() !== "connect") return;
+    if (state !== "none") return;
+    const t = setTimeout(() => {
+      startTransition(async () => {
+        const result = await connect(targetUserId);
+        if (!result.error) {
+          setState("connected");
+          notifyDemoConnect();
+        }
+      });
+    }, 900);
+    return () => clearTimeout(t);
+  }, [targetUserId, state, startTransition, notifyDemoConnect, phaseConnectPulse]);
 
   function handleConnect() {
     startTransition(async () => {
       const result = await connect(targetUserId);
-      if (!result.error) setState("connected");
+      if (!result.error) {
+        setState("connected");
+        notifyDemoConnect();
+      }
     });
   }
 
